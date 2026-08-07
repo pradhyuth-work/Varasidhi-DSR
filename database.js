@@ -16,7 +16,21 @@ types.setTypeParser(20, (val) => (val === null ? null : Number(val))); // int8
 types.setTypeParser(1114, (val) => val); // timestamp
 types.setTypeParser(1184, (val) => val); // timestamptz
 
-const connectionString = process.env.DATABASE_URL || process.env.DIRECT_URL;
+// Allow the DB password to live in its own env var (DB_PASSWORD) so it never has
+// to be URL-encoded by hand inside the connection string. If the string still
+// contains the literal [YOUR-PASSWORD] placeholder and DB_PASSWORD is set, we
+// substitute it (URL-encoded). A password baked directly into the URL also works.
+export function resolveConnectionString(conn) {
+  const pw = process.env.DB_PASSWORD;
+  if (conn && pw && conn.includes("[YOUR-PASSWORD]")) {
+    return conn.replace("[YOUR-PASSWORD]", encodeURIComponent(pw));
+  }
+  return conn;
+}
+
+const connectionString = resolveConnectionString(
+  process.env.DATABASE_URL || process.env.DIRECT_URL,
+);
 if (!connectionString) {
   throw new Error("DATABASE_URL (or DIRECT_URL) must be set to connect to Postgres.");
 }

@@ -38,7 +38,15 @@ const TABLES = [
   "stock_returns",
 ];
 
-const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL;
+// Inject DB_PASSWORD into the [YOUR-PASSWORD] placeholder (URL-encoded).
+const resolveConn = (conn) => {
+  const pw = process.env.DB_PASSWORD;
+  return conn && pw && conn.includes("[YOUR-PASSWORD]")
+    ? conn.replace("[YOUR-PASSWORD]", encodeURIComponent(pw))
+    : conn;
+};
+
+const connectionString = resolveConn(process.env.DIRECT_URL || process.env.DATABASE_URL);
 if (!connectionString) {
   console.error("Set DIRECT_URL (or DATABASE_URL) in .env first.");
   process.exit(1);

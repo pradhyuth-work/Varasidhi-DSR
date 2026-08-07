@@ -33,9 +33,15 @@ Database → Connection string** and copy two strings:
 ### 2. Configure env locally
 ```bash
 cp .env.example .env
-# then fill in DATABASE_URL, DIRECT_URL, ADMIN_PASSWORD
 npm install
 ```
+Fill in `.env`:
+- `DATABASE_URL` / `DIRECT_URL` — paste the pooler strings; **leave the
+  `[YOUR-PASSWORD]` placeholder in them**.
+- `DB_PASSWORD` — your raw database password. It's injected into the placeholder
+  (URL-encoded) automatically, so passwords with `@ # / :` etc. need no escaping.
+  (Alternatively, bake the password directly into the URLs and skip `DB_PASSWORD`.)
+- `ADMIN_PASSWORD` — the app's admin-action gate.
 
 ### 3. Create the schema + migrate data
 ```bash
