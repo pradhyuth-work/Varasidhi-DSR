@@ -1,5 +1,6 @@
 import express from "express";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { database, withTransaction } from "./database.js";
 
@@ -18,10 +19,74 @@ const positiveAmount = (value) => {
   return Number.isFinite(amount) && amount > 0 ? amount : null;
 };
 const today = () => new Date().toISOString().slice(0, 10);
-const isAdmin = (req) => String(req.header("x-user-role") || "").toUpperCase() === "ADMIN";
+// Admin status is derived from the verified session cookie (set on the request
+// by the auth middleware below), NOT from a client-supplied header.
+const isAdmin = (req) => req.userRole === "admin";
 
 function fail(res, status, error) {
   return res.status(status).json({ error });
+}
+
+// ---------------------------------------------------------------------------
+// Authentication: a signed, HTTP-only session cookie. No external deps — the
+// cookie is `role.expiry.hmac`, verified with SESSION_SECRET. Two roles exist:
+// "admin" (ADMIN_PASSWORD) and "user" (USER_PASSWORD).
+// ---------------------------------------------------------------------------
+const SESSION_COOKIE = "dsr_auth";
+const SESSION_SECRET =
+  process.env.SESSION_SECRET || "dev-insecure-secret-change-in-production";
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const isProd = process.env.NODE_ENV === "production";
+
+function signSession(role) {
+  const payload = `${role}.${Date.now() + SESSION_TTL_MS}`;
+  const sig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function verifySession(token) {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [role, exp, sig] = parts;
+  const expected = crypto
+    .createHmac("sha256", SESSION_SECRET)
+    .update(`${role}.${exp}`)
+    .digest("base64url");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  if (Number(exp) < Date.now()) return null;
+  if (role !== "admin" && role !== "user") return null;
+  return role;
+}
+
+function parseCookies(req) {
+  const out = {};
+  for (const pair of (req.headers.cookie || "").split(";")) {
+    const idx = pair.indexOf("=");
+    if (idx === -1) continue;
+    out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+  }
+  return out;
+}
+
+function setSessionCookie(res, role) {
+  const attrs = [
+    `${SESSION_COOKIE}=${signSession(role)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+  ];
+  if (isProd) attrs.push("Secure");
+  res.setHeader("Set-Cookie", attrs.join("; "));
+}
+
+function clearSessionCookie(res) {
+  const attrs = [`${SESSION_COOKIE}=`, "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
+  if (isProd) attrs.push("Secure");
+  res.setHeader("Set-Cookie", attrs.join("; "));
 }
 
 async function getSessionPayload(sessionId) {
@@ -108,14 +173,38 @@ async function getOrCreateActiveSession(buyerId) {
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 
-app.post("/api/admin/verify", (req, res) => {
-  const provided = String(req.body?.password || "");
-  const expected = process.env.ADMIN_PASSWORD || "5252";
-  if (!provided || provided !== expected) {
-    return fail(res, 401, "Incorrect admin password.");
+// Gate every /api route behind a valid session, except health and login.
+app.use("/api", (req, res, next) => {
+  const p = req.path;
+  if (p === "/login" || p === "/api/login" || p === "/health" || p === "/api/health") {
+    return next();
   }
+  const role = verifySession(parseCookies(req)[SESSION_COOKIE]);
+  if (!role) return fail(res, 401, "Please sign in.");
+  req.userRole = role;
+  next();
+});
+
+// Sign in: the submitted password decides the role (admin vs user).
+app.post("/api/login", (req, res) => {
+  const password = String(req.body?.password || "");
+  const adminPw = process.env.ADMIN_PASSWORD || "5252";
+  const userPw = process.env.USER_PASSWORD || "";
+  let role = null;
+  if (password && password === adminPw) role = "admin";
+  else if (password && userPw && password === userPw) role = "user";
+  if (!role) return fail(res, 401, "Incorrect password.");
+  setSessionCookie(res, role);
+  res.json({ role });
+});
+
+app.post("/api/logout", (req, res) => {
+  clearSessionCookie(res);
   res.json({ ok: true });
 });
+
+// Current session role — the frontend calls this on load to decide what to show.
+app.get("/api/me", (req, res) => res.json({ role: req.userRole }));
 
 app.get("/api/profiles", async (_req, res) => {
   try {

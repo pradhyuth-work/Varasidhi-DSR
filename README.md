@@ -41,7 +41,11 @@ Fill in `.env`:
 - `DB_PASSWORD` — your raw database password. It's injected into the placeholder
   (URL-encoded) automatically, so passwords with `@ # / :` etc. need no escaping.
   (Alternatively, bake the password directly into the URLs and skip `DB_PASSWORD`.)
-- `ADMIN_PASSWORD` — the app's admin-action gate.
+- `ADMIN_PASSWORD` — password for the **admin** login (full access).
+- `USER_PASSWORD` — password for the **user** login (operations: routes, loads,
+  payments, settlement — but not master/admin management).
+- `SESSION_SECRET` — random string used to sign login session cookies
+  (`openssl rand -hex 32`).
 
 ### 3. Create the schema + migrate data
 ```bash

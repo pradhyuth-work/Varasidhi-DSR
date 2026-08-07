@@ -63,6 +63,11 @@
       headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     });
     if (!response.ok) {
+      // A 401 means the session is missing/expired — surface the login gate.
+      if (response.status === 401) {
+        const ls = document.getElementById('login-screen');
+        if (ls) ls.hidden = false;
+      }
       let message = `Request failed (${response.status})`;
       try { const body = await response.json(); message = body.message || body.error || message; } catch (_) { /* non-json error */ }
       throw new Error(message);
@@ -1519,7 +1524,56 @@
   }
   function closePayment() { setHidden('payment-modal', true); }
 
+  // ---- Auth / login gate --------------------------------------------------
+  function applyRole(role) {
+    state.role = role === 'admin' ? 'Admin' : 'Store Manager';
+    const chip = $('whoami-role');
+    if (chip) chip.textContent = role === 'admin' ? 'Admin' : 'User';
+    const sel = $('role-select');
+    if (sel) sel.value = state.role;
+  }
+  function showLogin() {
+    setHidden('login-screen', false);
+    const pw = $('login-password');
+    if (pw) { pw.value = ''; window.setTimeout(() => pw.focus(), 40); }
+  }
+  async function initAuth() {
+    try {
+      const me = await request('/api/me');
+      applyRole(me.role);
+      setHidden('login-screen', true);
+      loadProfiles();
+    } catch (_) {
+      showLogin();
+    }
+  }
+  async function submitLogin(event) {
+    event.preventDefault();
+    const password = $('login-password').value;
+    const btn = $('login-submit');
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    setHidden('login-error', true);
+    try {
+      const res = await request('/api/login', { method: 'POST', body: JSON.stringify({ password }) });
+      applyRole(res.role);
+      setHidden('login-screen', true);
+      loadProfiles();
+    } catch (_) {
+      setHidden('login-error', false);
+      $('login-password').value = '';
+      $('login-password').focus();
+    } finally {
+      btn.disabled = false; btn.textContent = 'Sign in';
+    }
+  }
+  async function doLogout() {
+    try { await request('/api/logout', { method: 'POST' }); } catch (_) { /* ignore */ }
+    window.location.reload();
+  }
+
   function bindEvents() {
+    $('login-form').addEventListener('submit', submitLogin);
+    $('logout-btn').addEventListener('click', doLogout);
     $('buyer-select').addEventListener('change', (event) => loadSession(event.target.value));
     $('role-select').addEventListener('change', (event) => {
       const chosen = event.target.value;
@@ -1650,5 +1704,5 @@
 
   $('role-select').value = state.role;
   bindEvents();
-  loadProfiles();
+  initAuth();
 })();
