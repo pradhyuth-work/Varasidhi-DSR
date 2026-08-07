@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#153d42" />
+    <title>DSR · Route Operations</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div><strong>Varasidhi Enterprises</strong><small>FIELD OPERATIONS</small></div>
+        </div>
+        <nav class="nav-list">
+          <button class="nav-item active" type="button" data-nav="dashboard" data-testid="button-nav-dashboard">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+            <span>Today’s dispatch</span>
+          </button>
+          <button class="nav-item" type="button" data-nav="reports" data-testid="button-nav-reports">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>
+            <span>Route reports</span>
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="rail-note">
+            <span class="note-dot"></span>
+            <div><b>Warehouse live</b><small>Last sync <span id="last-sync">—</span></small></div>
+          </div>
+          <div class="user-line">
+            <div class="avatar">SM</div><div><b>Store Manager</b><small>Operations desk</small></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="breadcrumbs"><span>OPERATIONS</span><i>/</i><b>DAILY SALES REPORT</b></div>
+          <div class="top-actions">
+            <label class="role-switcher" for="role-select"><span>Viewing as</span>
+              <select id="role-select" data-testid="select-role">
+                <option value="Store Manager">Store Manager</option>
+                <option value="Admin">Admin</option>
+              </select>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+            </label>
+            <div class="view-switcher" aria-label="Application view">
+              <button class="view-button active" type="button" id="view-dsr" data-view="dsr">Daily DSR View</button>
+              <button class="view-button" type="button" id="view-settlement">Settlement Report</button>
+              <button class="view-button" type="button" id="view-admin" data-view="admin" hidden>Admin Portal</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="page-wrap">
+          <section class="page-heading">
+            <div>
+              <p class="eyebrow">TUESDAY · <span id="today-date">—</span></p>
+              <h1>Route control room</h1>
+              <p class="subheading">Dispatch cleanly. Close with certainty.</p>
+            </div>
+            <div class="sync-status"><span class="pulse"></span><span id="sync-label">Connecting to warehouse…</span></div>
+          </section>
+
+          <section class="profile-panel" id="profile-panel" aria-labelledby="profile-title">
+            <div class="profile-primary">
+              <div class="profile-badge" id="profile-initials">—</div>
+              <div>
+                <p class="eyebrow">ACTIVE BUYER ROUTE</p>
+                <div class="profile-title-line"><h2 id="profile-title">Select a buyer</h2><span id="status-chip" class="status-chip status-empty">NO ROUTE</span></div>
+                <p class="profile-meta" id="profile-meta">Choose a buyer profile to hydrate today’s session.</p>
+              </div>
+            </div>
+            <div class="profile-balance-badge">
+              <span>PREVIOUS BALANCE</span>
+              <strong id="profile-previous-balance">—</strong>
+            </div>
+            <div class="profile-controls">
+              <label class="field-label" for="buyer-select">Buyer profile</label>
+              <div class="select-wrap">
+                <select id="buyer-select" data-testid="select-buyer" disabled><option>Loading profiles…</option></select>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+              </div>
+            </div>
+          </section>
+
+          <div id="global-feedback" class="inline-feedback" role="status" aria-live="polite"></div>
+          <div id="page-loading" class="loading-state" aria-live="polite">
+            <div class="skeleton skeleton-wide"></div><div class="skeleton skeleton-table"></div><div class="skeleton skeleton-table short"></div>
+          </div>
+          <div id="page-error" class="error-state" hidden>
+            <div class="error-icon">!</div><div><b>Route data could not be loaded</b><p id="error-copy">Check the connection and try again.</p></div>
+            <button class="button button-quiet" id="retry-load" type="button">Retry</button>
+          </div>
+          <div id="empty-state" class="empty-state" hidden>
+            <div class="empty-mark">+</div><h3>No active route for this buyer</h3><p>Dispatch stock to begin a daily sales report. Profiles with a current route will appear here.</p>
+          </div>
+
+          <div id="dashboard-content" data-view-panel="dsr" hidden>
+            <section class="metric-grid" aria-label="Route summary">
+              <article class="metric-card metric-balance">
+                <div class="metric-top"><span>Previous balance</span><span class="metric-icon">↗</span></div>
+                <strong id="previous-balance" data-testid="text-previous-balance">—</strong>
+                <small>Carried from last settlement</small>
+              </article>
+              <article class="metric-card">
+                <div class="metric-top"><span>Gross sales</span><span class="metric-icon teal">◎</span></div>
+                <strong id="gross-sales" data-testid="text-gross-sales">—</strong>
+                <small>Value of stock sold today</small>
+              </article>
+              <article class="metric-card">
+                <div class="metric-top"><span>Payments received</span><span class="metric-icon amber">↓</span></div>
+                <strong id="payments-received" data-testid="text-payments-received">—</strong>
+                <small><span id="payment-count">0</span> recorded this route</small>
+              </article>
+              <article class="metric-card metric-balance">
+                <div class="metric-top"><span>Updated balance</span><span class="metric-icon">Σ</span></div>
+                <strong id="updated-balance" data-testid="text-updated-balance">—</strong>
+                <small>Previous + sales − payments</small>
+              </article>
+            </section>
+
+            <section class="workflow-bar" aria-label="Route workflow">
+              <div class="workflow-step active"><span>01</span><div><b>Load route</b><small>Dispatch from warehouse</small></div></div>
+              <div class="workflow-line"></div>
+              <div class="workflow-step" id="close-step"><span>02</span><div><b>Close route</b><small>Confirm closing stock</small></div></div>
+              <div class="workflow-caption"><span id="workflow-caption">IN PROGRESS</span><small>Keep this screen open while the buyer is out.</small></div>
+            </section>
+
+            <div class="dsr-tabs" role="tablist" aria-label="DSR workflow sections">
+              <button class="dsr-tab" type="button" data-dsr-tab="dispatch" role="tab">
+                <span class="dsr-tab-num">01</span>Dispatch
+              </button>
+              <button class="dsr-tab" type="button" data-dsr-tab="closing" role="tab">
+                <span class="dsr-tab-num">02</span>Closing stock
+              </button>
+              <button class="dsr-tab" type="button" data-dsr-tab="performance" role="tab">
+                <span class="dsr-tab-num">03</span>Performance
+              </button>
+            </div>
+
+            <section id="dispatch-section" class="section-block" aria-labelledby="dispatch-heading">
+              <div class="section-heading">
+                <div><div class="section-kicker"><span class="section-number">01</span><span>DISPATCH</span></div><h2 id="dispatch-heading">Load-in workflow</h2><p>Record the stock leaving the warehouse with the buyer.</p></div>
+                <button class="button button-primary" id="save-load" type="button" data-testid="button-save-load">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Save load-in
+                </button>
+              </div>
+              <div class="table-shell">
+                <table class="route-table" id="load-table">
+                  <thead><tr><th>PRODUCT</th><th>WAREHOUSE STOCK</th><th>OPENING STOCK</th><th>PREVIOUSLY LOADED</th><th>ADDITIONAL LOAD</th><th>TOTAL DISPATCHED</th><th>UNIT PRICE</th></tr></thead>
+                  <tbody id="load-body"></tbody>
+                </table>
+              </div>
+              <p class="table-footnote"><span class="info-mark">i</span> Additional load is added to the existing opening stock. Only positive quantities can be dispatched.</p>
+            </section>
+
+            <section id="closing-section" class="section-block" aria-labelledby="closing-heading">
+              <div class="section-heading">
+                <div><div class="section-kicker"><span class="section-number">02</span><span>CLOSING</span></div><h2 id="closing-heading">Closing stock</h2><p>Enter the physical count returned by the buyer to calculate sales.</p></div>
+                <button class="button button-primary" id="save-closing" type="button" data-testid="button-save-closing">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save closing
+                </button>
+              </div>
+              <div class="table-shell">
+                <table class="route-table closing-table" id="closing-table">
+                  <thead><tr><th>PRODUCT</th><th>TOTAL DISPATCHED</th><th>RETURNED / CLOSING</th><th>QTY SOLD</th><th>UNIT PRICE</th><th>LINE TOTAL</th></tr></thead>
+                  <tbody id="closing-body"></tbody>
+                </table>
+              </div>
+              <div class="settlement-note"><span class="info-mark">i</span><span>Sales are calculated as route stock less closing stock. Save closing before collecting payments.</span><strong id="settlement-total">—</strong></div>
+            </section>
+
+            <section id="payments-section" class="payments-section section-block" aria-labelledby="payments-heading">
+              <div class="section-heading compact">
+                <div><div class="section-kicker"><span class="section-number">03</span><span>COLLECTIONS</span></div><h2 id="payments-heading">Payments received</h2><p>Add all collections before settling the route.</p></div>
+                <button class="button button-outline" id="add-payment" type="button" data-testid="button-add-payment">+ Add payment</button>
+              </div>
+              <div id="payments-list" class="payments-list"></div>
+              <div id="payments-empty" class="payments-empty" hidden><span class="empty-line"></span><p>No payments recorded on this route yet.</p><span class="empty-line"></span></div>
+              <div class="settle-bar" id="settle-bar">
+                <div class="settle-bar-stats">
+                  <div class="settle-bar-stat"><span>Total sales</span><b id="settle-summary-sales">—</b></div>
+                  <div class="settle-bar-stat"><span>Payments received</span><b id="settle-summary-payments">—</b></div>
+                  <div class="settle-bar-stat settle-bar-balance"><span>Balance after settlement</span><b id="settle-summary-balance">—</b></div>
+                </div>
+                <button class="button button-dark" id="settle-route" type="button" data-testid="button-settle-route">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Settle &amp; finalise
+                </button>
+              </div>
+              <div class="return-stock-bar" id="return-stock-bar" hidden>
+                <div class="return-stock-info">
+                  <span class="return-stock-icon">↩</span>
+                  <div>
+                    <strong>Return stock to warehouse</strong>
+                    <p>Buyer's remaining closing stock will be added back to main inventory and zeroed here.</p>
+                  </div>
+                </div>
+                <button class="button button-outline" id="return-stock-btn" type="button">Return to warehouse</button>
+              </div>
+            </section>
+
+            <!-- ── Performance tab panel ──────────────────────────────── -->
+            <section id="performance-section" class="section-block" hidden>
+              <div class="section-heading">
+                <div><div class="section-kicker"><span class="section-number">03</span><span>PERFORMANCE</span></div><h2>Route performance</h2><p>Track settled sessions, quantities sold, and revenue by buyer and product.</p></div>
+              </div>
+              <div class="report-filters">
+                <div class="report-filter-group">
+                  <label class="report-filter-field">
+                    <span>Buyer profile</span>
+                    <select id="perf-profile-select"><option value="">All profiles</option></select>
+                  </label>
+                  <label class="report-filter-field"><span>From</span><input id="perf-from" type="date" /></label>
+                  <label class="report-filter-field"><span>To</span><input id="perf-to" type="date" /></label>
+                  <button class="button button-primary report-apply-btn" type="button" id="apply-perf-filters">Apply</button>
+                  <button class="button button-quiet report-apply-btn" type="button" id="perf-download-csv" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                  </button>
+                </div>
+              </div>
+
+              <p id="perf-loading" class="report-status-msg" hidden>Loading performance data…</p>
+              <p id="perf-empty"   class="report-status-msg" hidden>No settled sessions found for this selection.</p>
+
+              <div id="perf-summary" class="report-summary-strip" hidden>
+                <div class="report-stat"><span>SETTLED SESSIONS</span><strong id="perf-stat-sessions">—</strong></div>
+                <div class="report-stat"><span>TOTAL QTY SOLD</span><strong id="perf-stat-qty">—</strong></div>
+                <div class="report-stat report-stat-payments"><span>TOTAL REVENUE</span><strong id="perf-stat-revenue">—</strong></div>
+              </div>
+
+              <div id="perf-table-section" hidden>
+                <div class="admin-section-heading report-buyer-heading" id="perf-table-heading">
+                  <div>
+                    <div class="section-kicker"><span class="section-number">01</span><span>BREAKDOWN</span></div>
+                    <h2 id="perf-table-title">Profile performance</h2>
+                  </div>
+                </div>
+
+                <!-- All-profiles view -->
+                <div id="perf-profiles-view">
+                  <div class="table-shell">
+                    <table class="route-table admin-table">
+                      <thead><tr><th>BUYER</th><th>SESSIONS</th><th>TOTAL QTY SOLD</th><th>REVENUE</th><th>QTY SHARE</th></tr></thead>
+                      <tbody id="perf-profiles-body"></tbody>
+                    </table>
+                  </div>
+                  <!-- Per-profile product accordion rows injected here -->
+                  <div id="perf-profiles-products"></div>
+                </div>
+
+                <!-- Single-profile view -->
+                <div id="perf-single-view" hidden>
+                  <div class="table-shell">
+                    <table class="route-table admin-table">
+                      <thead><tr><th>PRODUCT</th><th>SESSIONS</th><th>QTY SOLD</th><th>REVENUE</th><th>QTY SHARE</th></tr></thead>
+                      <tbody id="perf-single-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div id="admin-content" data-view-panel="admin" hidden>
+            <section class="admin-hero">
+              <div>
+                <p class="eyebrow">CONTROL CENTRE · ADMIN ONLY</p>
+                <h1>Manage the route network</h1>
+                <p class="subheading">Keep rates, buyers, and warehouse inwarding accurate before the next dispatch.</p>
+              </div>
+              <span class="admin-lock"><span class="pulse"></span> Admin permissions active</span>
+            </section>
+            <div id="admin-feedback" class="inline-feedback" role="status" aria-live="polite"></div>
+            <div class="admin-tabs" role="tablist" aria-label="Admin management">
+              <button class="admin-tab active" type="button" data-admin-tab="masters">Rate &amp; product master</button>
+              <button class="admin-tab" type="button" data-admin-tab="profiles">Profile / buyer manager</button>
+              <button class="admin-tab" type="button" data-admin-tab="purchases">Inventory inwarding</button>
+              <button class="admin-tab" type="button" data-admin-tab="reports">Sales reports</button>
+              <button class="admin-tab" type="button" data-admin-tab="payments-report">Payments &amp; balances</button>
+            </div>
+
+            <section class="admin-panel active" data-admin-panel="masters">
+              <div class="admin-grid">
+                <form class="admin-card" id="product-form">
+                  <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT MASTER</span></div>
+                  <h2>Add a product</h2>
+                  <p class="card-copy">Create a product with its starting warehouse count and current selling rate.</p>
+                  <label class="form-field"><span>Product ID <span class="field-optional">(optional — auto-assigned if blank)</span></span><input id="product-custom-id" type="number" min="1" step="1" placeholder="e.g. 5" /></label>
+                  <label class="form-field"><span>Product name</span><input id="product-name" required maxlength="120" placeholder="e.g. Item D · Personal care" /></label>
+                  <label class="form-field"><span>Initial warehouse stock</span><input id="product-stock" type="number" min="0" step="1" required placeholder="0" /></label>
+                  <label class="form-field"><span>Unit price</span><div class="amount-input"><span>₹</span><input id="product-price" type="number" min="0.01" step="0.01" required placeholder="0.00" /></div></label>
+                  <button class="button button-primary" type="submit" id="add-product">Add product</button>
+                </form>
+                <div class="admin-card notice-card">
+                  <span class="notice-icon">↗</span>
+                  <div><b>Historical rates stay locked</b><p>Changing a Rate Master price affects only future DSR sessions. Existing route items retain the rate captured when their session was created.</p></div>
+                </div>
+              </div>
+              <div class="admin-section-heading"><div><div class="section-kicker"><span class="section-number">02</span><span>RATE MASTER</span></div><h2>Products &amp; warehouse stock</h2></div></div>
+              <div class="table-shell">
+                <table class="route-table admin-table"><thead><tr><th>PRODUCT</th><th>WAREHOUSE STOCK</th><th>CURRENT UNIT PRICE</th><th>UPDATE RATE</th><th></th><th>CHANGE ID</th><th></th></tr></thead><tbody id="products-body"></tbody></table>
+              </div>
+            </section>
+
+            <section class="admin-panel" data-admin-panel="profiles" hidden>
+              <div class="admin-grid">
+                <form class="admin-card" id="profile-form">
+                  <div class="section-kicker"><span class="section-number">01</span><span>BUYER MANAGER</span></div>
+                  <h2>Add a buyer profile</h2>
+                  <p class="card-copy">Set the opening ledger balance for a new route buyer.</p>
+                  <label class="form-field"><span>Buyer name</span><input id="profile-name" required maxlength="120" placeholder="e.g. Arjun Mehta · Route 24" /></label>
+                  <label class="form-field"><span>Opening balance</span><div class="amount-input"><span>₹</span><input id="profile-balance" type="number" min="0" step="0.01" value="1250" required /></div></label>
+                  <button class="button button-primary" type="submit" id="add-profile">Add buyer profile</button>
+                </form>
+                <div class="admin-card notice-card"><span class="notice-icon">◎</span><div><b>Route history is protected</b><p>Profiles with DSR history cannot be deleted, preserving the integrity of settled reports.</p></div></div>
+              </div>
+              <div class="admin-section-heading"><div><div class="section-kicker"><span class="section-number">02</span><span>BUYER PROFILES</span></div><h2>Active ledger accounts</h2></div></div>
+              <div class="table-shell"><table class="route-table admin-table"><thead><tr><th>BUYER</th><th>PROFILE ID</th><th>CURRENT LEDGER BALANCE</th><th></th></tr></thead><tbody id="profiles-body"></tbody></table></div>
+            </section>
+
+            <section class="admin-panel" data-admin-panel="purchases" hidden>
+              <div class="admin-grid">
+                <form class="admin-card" id="purchase-form">
+                  <div class="section-kicker"><span class="section-number">01</span><span>INWARDING</span></div>
+                  <h2>Record inventory purchase</h2>
+                  <p class="card-copy">Post an incoming bill and increase warehouse stock immediately.</p>
+                  <label class="form-field"><span>Product</span><select id="purchase-product" required></select></label>
+                  <label class="form-field"><span>Quantity added</span><input id="purchase-quantity" type="number" min="1" step="1" required placeholder="0" /></label>
+                  <label class="form-field"><span>Supplier / bill reference <em>Optional</em></span><input id="purchase-reference" maxlength="120" placeholder="e.g. INV-2026-0042 · Acme Foods" /></label>
+                  <button class="button button-primary" type="submit" id="add-purchase">Post purchase inward</button>
+                </form>
+                <div class="admin-card inventory-callout"><span class="inventory-number" id="inventory-total-products">—</span><div><b>Product catalogue</b><p>Stock changes from inwarding are reflected in live dispatch availability.</p></div></div>
+              </div>
+              <div class="admin-section-heading"><div><div class="section-kicker"><span class="section-number">02</span><span>PURCHASE LOG</span></div><h2>Recent inwarding</h2></div></div>
+              <div class="table-shell"><table class="route-table admin-table"><thead><tr><th>DATE</th><th>PRODUCT</th><th>QUANTITY</th><th>SUPPLIER / BILL REF</th><th>STOCK AFTER</th><th></th></tr></thead><tbody id="purchases-body"></tbody></table></div>
+              <div id="purchases-pagination"></div>
+            </section>
+
+            <section class="admin-panel" data-admin-panel="reports" hidden>
+              <div class="report-filters">
+                <div class="report-filter-group">
+                  <label class="report-filter-field">
+                    <span>Buyer profile</span>
+                    <select id="report-profile-select"><option value="">All profiles</option></select>
+                  </label>
+                  <label class="report-filter-field">
+                    <span>From</span>
+                    <input id="report-from" type="date" />
+                  </label>
+                  <label class="report-filter-field">
+                    <span>To</span>
+                    <input id="report-to" type="date" />
+                  </label>
+                  <button class="button button-primary report-apply-btn" type="button" id="apply-report-filters">Apply</button>
+                  <button class="button button-quiet report-apply-btn" type="button" id="report-download-csv" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                  </button>
+                </div>
+              </div>
+
+              <p id="report-loading" class="report-status-msg" hidden>Loading report…</p>
+              <p id="report-empty" class="report-status-msg" hidden>No settled sessions found for the selected filters.</p>
+
+              <div id="report-summary" class="report-summary-strip" hidden>
+                <div class="report-stat"><span>SETTLED SESSIONS</span><strong id="rep-session-count">—</strong></div>
+                <div class="report-stat"><span>TOTAL SALES</span><strong id="rep-total-sales">—</strong></div>
+                <div class="report-stat report-stat-payments"><span>PAYMENTS RECEIVED</span><strong id="rep-total-payments">—</strong></div>
+              </div>
+
+              <div id="report-products-section" hidden>
+                <div class="admin-section-heading">
+                  <div>
+                    <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT-WISE SALES</span></div>
+                    <h2>Sales by product</h2>
+                  </div>
+                </div>
+                <div class="table-shell">
+                  <table class="route-table admin-table">
+                    <thead><tr><th>PRODUCT</th><th>UNIT PRICE</th><th>SESSIONS</th><th>QTY SOLD</th><th>REVENUE</th><th>% OF TOTAL</th></tr></thead>
+                    <tbody id="report-products-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div id="report-buyer-section" hidden>
+                <div class="admin-section-heading report-buyer-heading">
+                  <div>
+                    <div class="section-kicker"><span class="section-number">02</span><span>BUYER BREAKDOWN</span></div>
+                    <h2>Sales by buyer</h2>
+                  </div>
+                </div>
+                <div class="table-shell">
+                  <table class="route-table admin-table">
+                    <thead><tr><th>BUYER</th><th>SESSIONS</th><th>TOTAL SALES</th><th>PAYMENTS RECEIVED</th><th>NET DUE</th></tr></thead>
+                    <tbody id="report-buyer-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- ── Inventory Reports ─────────────────────────────── -->
+              <div class="report-section-divider">INVENTORY REPORTS</div>
+
+              <div class="report-filters">
+                <div class="report-filter-group">
+                  <label class="report-filter-field"><span>From</span><input id="inv-report-from" type="date" /></label>
+                  <label class="report-filter-field"><span>To</span><input id="inv-report-to" type="date" /></label>
+                  <button class="button button-primary report-apply-btn" type="button" id="apply-inv-filters">Apply</button>
+                  <button class="button button-quiet report-apply-btn" type="button" id="inv-bills-download-csv" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                  </button>
+                </div>
+              </div>
+
+              <p id="inv-loading" class="report-status-msg" hidden>Loading inventory data…</p>
+
+              <div id="inv-bills-section" hidden>
+                <div class="admin-section-heading">
+                  <div>
+                    <div class="section-kicker"><span class="section-number">01</span><span>INVENTORY LOG</span></div>
+                    <h2>Inventory movement log</h2>
+                  </div>
+                </div>
+                <div class="table-shell">
+                  <table class="route-table admin-table">
+                    <thead><tr><th>TYPE</th><th>REFERENCE</th><th>DATE</th><th>PRODUCT</th><th>QTY</th></tr></thead>
+                    <tbody id="inv-bills-body"></tbody>
+                  </table>
+                </div>
+                <div id="inv-bills-pagination"></div>
+              </div>
+
+              <div id="inv-stock-section" hidden>
+                <div class="admin-section-heading report-buyer-heading">
+                  <div>
+                    <div class="section-kicker"><span class="section-number">02</span><span>LIVE INVENTORY</span></div>
+                    <h2>Current warehouse stock</h2>
+                  </div>
+                  <button class="button button-quiet compact-button inv-dl-btn" type="button" id="inv-stock-download-csv">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                  </button>
+                </div>
+                <div class="table-shell">
+                  <table class="route-table admin-table">
+                    <thead><tr><th>PRODUCT</th><th>CURRENT STOCK</th><th>UNIT PRICE</th><th>STATUS</th></tr></thead>
+                    <tbody id="inv-stock-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div id="profile-stock-section" hidden>
+                <div class="admin-section-heading report-buyer-heading">
+                  <div>
+                    <div class="section-kicker"><span class="section-number">03</span><span>PROFILE STOCK</span></div>
+                    <h2>Profile-wise stock on hand</h2>
+                    <p class="section-desc">Closing stock from each buyer's latest route session — what they currently hold.</p>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+                    <select class="filter-select" id="profile-stock-filter" aria-label="Filter by buyer profile">
+                      <option value="">All profiles</option>
+                    </select>
+                    <button class="button button-quiet compact-button inv-dl-btn" type="button" id="profile-stock-download-csv">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                    </button>
+                  </div>
+                </div>
+                <div id="profile-stock-body"></div>
+              </div>
+            </section>
+
+             <section class="admin-panel" data-admin-panel="payments-report" hidden>
+               <div class="report-filters">
+                 <div class="report-filter-group">
+                   <label class="report-filter-field">
+                     <span>Buyer profile</span>
+                     <select id="pr-profile-select"><option value="">All profiles</option></select>
+                   </label>
+                   <label class="report-filter-field"><span>From</span><input id="pr-from" type="date" /></label>
+                   <label class="report-filter-field"><span>To</span><input id="pr-to" type="date" /></label>
+                   <button class="button button-primary report-apply-btn" type="button" id="apply-pr-filters">Apply</button>
+                   <button class="button button-quiet report-apply-btn" type="button" id="pr-download-csv" disabled>
+                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                   </button>
+                 </div>
+               </div>
+
+               <p id="pr-loading" class="report-status-msg" hidden>Loading payments data…</p>
+               <p id="pr-empty" class="report-status-msg" hidden>No payments found for the selected period.</p>
+
+               <div id="pr-summary" class="report-summary-strip" hidden>
+                 <div class="report-stat"><span>TOTAL RECEIVED</span><strong id="pr-total-amount">—</strong></div>
+                 <div class="report-stat"><span>PAYMENT ENTRIES</span><strong id="pr-payment-count">—</strong></div>
+                 <div class="report-stat"><span>BUYERS</span><strong id="pr-buyer-count">—</strong></div>
+               </div>
+
+               <div id="pr-days-section" hidden>
+                 <div class="admin-section-heading">
+                   <div>
+                     <div class="section-kicker"><span class="section-number">01</span><span>DAY-WISE PAYMENTS</span></div>
+                     <h2>Payments received by day</h2>
+                   </div>
+                 </div>
+                 <div class="table-shell">
+                   <table class="route-table admin-table">
+                     <thead><tr><th>DATE</th><th>BUYER</th><th>METHOD</th><th>REFERENCE</th><th>AMOUNT</th></tr></thead>
+                     <tbody id="pr-days-body"></tbody>
+                   </table>
+                 </div>
+                 <div id="pr-days-pagination"></div>
+               </div>
+
+               <div id="pr-balances-section" hidden>
+                   </table>
+                 </div>
+               </div>
+
+               <div id="pr-balances-section" hidden>
+                 <div class="admin-section-heading report-buyer-heading">
+                   <div>
+                     <div class="section-kicker"><span class="section-number">02</span><span>LEDGER BALANCES</span></div>
+                     <h2>Current outstanding balances</h2>
+                   </div>
+                 </div>
+                 <div class="table-shell">
+                   <table class="route-table admin-table">
+                     <thead><tr><th>BUYER</th><th>CURRENT BALANCE</th><th>LAST SETTLED</th></tr></thead>
+                     <tbody id="pr-balances-body"></tbody>
+                   </table>
+                 </div>
+               </div>
+             </section>
+
+          </div>
+
+          <!-- ── Settlement Report panel ────────────────────────────── -->
+          <div id="settlement-content" hidden>
+            <section class="admin-hero">
+              <div>
+                <p class="eyebrow">SETTLEMENT REPORTS · ALL ROLES</p>
+                <h1>Settlement history</h1>
+                <p class="subheading">Product-wise breakdown for every settled route.</p>
+              </div>
+            </section>
+
+            <div class="report-filters">
+              <div class="report-filter-group">
+                <label class="report-filter-field">
+                  <span>Buyer profile</span>
+                  <select id="settle-profile-select"><option value="">All profiles</option></select>
+                </label>
+                <label class="report-filter-field"><span>From</span><input id="settle-from" type="date" /></label>
+                <label class="report-filter-field"><span>To</span><input id="settle-to" type="date" /></label>
+                <button class="button button-primary report-apply-btn" type="button" id="apply-settle-filters">Apply</button>
+                <button class="button button-quiet report-apply-btn" type="button" id="settle-download-csv" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                </button>
+              </div>
+            </div>
+
+            <p id="settle-loading" class="report-status-msg" hidden>Loading settlement data…</p>
+            <p id="settle-empty"   class="report-status-msg" hidden>No settled sessions found for this selection.</p>
+
+            <div id="settle-main" hidden>
+              <div class="settle-layout">
+                <!-- Session list sidebar -->
+                <div class="settle-session-list" id="settle-session-list"></div>
+
+                <!-- Pivot detail -->
+                <div class="settle-detail-panel">
+                  <div class="admin-section-heading">
+                    <div>
+                      <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT BREAKDOWN</span></div>
+                      <h2 id="settle-detail-title">Settlement detail</h2>
+                    </div>
+                  </div>
+                  <div class="table-shell">
+                    <table class="route-table settle-pivot">
+                      <thead id="settle-pivot-head"></thead>
+                      <tbody id="settle-pivot-body"></tbody>
+                    </table>
+                  </div>
+
+                  <!-- Payments -->
+                  <div class="admin-section-heading" style="margin-top:28px">
+                    <div>
+                      <div class="section-kicker"><span class="section-number">02</span><span>COLLECTIONS</span></div>
+                      <h2>Payments received</h2>
+                    </div>
+                  </div>
+                  <div id="settle-payments-list"></div>
+                  <div id="settle-balance-strip" class="settle-balance-strip"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="live-footer" id="live-footer" hidden aria-label="Live route summary">
+            <div class="footer-label"><span class="pulse"></span><div><b>Live route summary</b><small>Updated from today’s session</small></div></div>
+            <div class="footer-stat"><span>Previous balance</span><b id="footer-previous-balance">—</b></div>
+            <div class="footer-stat"><span>Today’s total sales</span><b id="footer-sales">—</b></div>
+            <div class="footer-stat"><span>Payments received</span><b id="footer-payments">—</b></div>
+            <div class="footer-stat footer-highlight"><span>Updated ledger balance</span><b id="footer-balance">—</b></div>
+          </footer>
+        </div>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="payment-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="payment-modal-title">
+        <button class="modal-close" id="close-payment" type="button" aria-label="Close payment form">×</button>
+        <div class="section-kicker"><span class="section-number">03</span><span>COLLECTION</span></div>
+        <h2 id="payment-modal-title">Record a payment</h2><p class="modal-intro">Add the collection against <strong id="payment-buyer-name">this route</strong>.</p>
+        <form id="payment-form">
+          <label class="form-field"><span>Payment method</span><select id="payment-method" required data-testid="select-payment-method"><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option><option value="MOBILE_MONEY">Mobile money</option><option value="CHEQUE">Cheque</option></select></label>
+          <label class="form-field"><span>Reference / label <em>Optional</em></span><input id="payment-label" type="text" maxlength="80" placeholder="e.g. Till 04 · receipt 182" data-testid="input-payment-label" /></label>
+            <label class="form-field"><span>Amount</span><div class="amount-input"><span>₹</span><input id="payment-amount" type="number" min="0.01" step="0.01" placeholder="0.00" required data-testid="input-payment-amount" /></div></label>
+          <div class="modal-actions"><button class="button button-quiet" id="cancel-payment" type="button">Cancel</button><button class="button button-primary" type="submit" data-testid="button-submit-payment">Save payment</button></div>
+        </form>
+      </div>
+    </div>
+    <div class="modal-backdrop" id="return-stock-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="return-stock-modal-title">
+        <button class="modal-close" id="close-return-stock" type="button" aria-label="Close">×</button>
+        <h2 id="return-stock-modal-title">Return stock to warehouse</h2>
+        <p class="modal-intro">The following quantities will be moved from <strong id="return-stock-buyer-name">this route</strong> back into main inventory. Closing stock will be set to zero.</p>
+        <div id="return-stock-list" class="return-stock-list"></div>
+        <div class="modal-actions">
+          <button class="button button-quiet" id="cancel-return-stock" type="button">Cancel</button>
+          <button class="button button-primary" id="confirm-return-stock" type="button">Confirm return</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="admin-auth-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="admin-auth-title">
+        <button class="modal-close" id="close-admin-auth" type="button" aria-label="Cancel">×</button>
+        <div class="section-kicker"><span class="section-number">🔒</span><span>ADMIN ACCESS</span></div>
+        <h2 id="admin-auth-title">Enter admin password</h2>
+        <p class="modal-intro">This area is restricted. Enter the admin password to continue.</p>
+        <form id="admin-auth-form" autocomplete="off">
+          <label class="form-field">
+            <span>Password</span>
+            <input id="admin-password-input" type="password" maxlength="128" placeholder="••••••••" required autocomplete="current-password" />
+          </label>
+          <p id="admin-auth-error" class="admin-auth-error" hidden>Incorrect password. Please try again.</p>
+          <div class="modal-actions">
+            <button class="button button-quiet" id="cancel-admin-auth" type="button">Cancel</button>
+            <button class="button button-primary" type="submit" id="submit-admin-auth">Unlock admin</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

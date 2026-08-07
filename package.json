@@ -1,0 +1,24 @@
+{
+  "name": "dsr-route-system",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Daily Sales Report / route distribution console (Vercel + Supabase Postgres).",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "node local.js",
+    "start": "node local.js",
+    "db:schema": "node scripts/apply-schema.mjs",
+    "db:migrate": "node scripts/migrate-data.mjs"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.7",
+    "sqlite3": "^6.0.1"
+  }
+}
