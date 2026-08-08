@@ -476,6 +476,22 @@ app.get("/api/purchases", async (_req, res) => {
   }
 });
 
+app.get("/api/stock-adjustments", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can view stock adjustment history.");
+  try {
+    res.json({ adjustments: await database.all(
+      `SELECT a.id, a.product_id, p.name AS product_name, a.old_stock,
+              a.new_stock, a.delta, a.mode, a.reason, a.created_at
+         FROM stock_adjustments a
+         LEFT JOIN products p ON p.id = a.product_id
+        ORDER BY a.created_at DESC, a.id DESC LIMIT 200`,
+    ) });
+  } catch (error) {
+    console.error("Failed to list stock adjustments", error);
+    fail(res, 500, "Unable to load stock adjustment history.");
+  }
+});
+
 app.post("/api/inventory/purchase", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can record purchases.");
   const productId = positiveInteger(req.body?.productId);

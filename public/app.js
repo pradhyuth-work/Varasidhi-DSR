@@ -9,6 +9,8 @@
     payments: [],
     products: [],
     purchases: [],
+    adjustments: [],
+    adjustmentsPage: 0,
     role: 'Store Manager',
     view: 'dsr',
     adminTab: 'masters',
@@ -141,13 +143,16 @@
   async function loadAdminData() {
     if (state.role !== 'Admin') return;
     try {
-      const [productsPayload, purchasesPayload] = await Promise.all([
+      const [productsPayload, purchasesPayload, adjustmentsPayload] = await Promise.all([
         request('/api/products'),
         request('/api/purchases'),
+        request('/api/stock-adjustments'),
       ]);
       state.products = Array.isArray(productsPayload?.products) ? productsPayload.products : [];
       state.purchases = Array.isArray(purchasesPayload?.purchases) ? purchasesPayload.purchases : [];
+      state.adjustments = Array.isArray(adjustmentsPayload?.adjustments) ? adjustmentsPayload.adjustments : [];
       state.purchasesPage = 0;
+      state.adjustmentsPage = 0;
       renderAdmin();
     } catch (error) {
       adminMessage(error.message, true);
@@ -278,6 +283,36 @@
            <button class="page-btn" data-page-target="purchases" data-page-dir="1" ${state.purchasesPage >= purchasesTotalPages - 1 ? 'disabled' : ''}>Next →</button>
          </div>`
       : '';
+    if ($('adjustments-body')) {
+      const ADJ_PAGE_SIZE = 20;
+      const adjTotalPages = Math.max(1, Math.ceil(state.adjustments.length / ADJ_PAGE_SIZE));
+      state.adjustmentsPage = Math.min(state.adjustmentsPage, adjTotalPages - 1);
+      const adjStart = state.adjustmentsPage * ADJ_PAGE_SIZE;
+      const adjPage = state.adjustments.slice(adjStart, adjStart + ADJ_PAGE_SIZE);
+      $('adjustments-body').innerHTML = adjPage.length
+        ? adjPage.map((a) => {
+            const delta = Number(a.delta);
+            const deltaLabel = delta > 0 ? `+${integer(delta)}` : integer(delta);
+            const deltaClass = delta > 0 ? 'route-stock' : delta < 0 ? 'sold' : 'stock-quiet';
+            const typeLabel = a.mode === 'set' ? 'Set count' : 'Adjust ±';
+            return `<tr>
+              <td class="stock-quiet">${dateLabel(a.created_at)} · ${timeLabel(a.created_at)}</td>
+              <td><div class="product-cell"><span>${escapeHtml(a.product_name || `Product ${a.product_id}`)}</span></div></td>
+              <td class="stock-quiet">${typeLabel}</td>
+              <td class="stock-quiet">${integer(a.old_stock)} → <b>${integer(a.new_stock)}</b></td>
+              <td class="${deltaClass}">${deltaLabel}</td>
+              <td class="stock-quiet">${escapeHtml(a.reason || '—')}</td>
+            </tr>`;
+          }).join('')
+        : '<tr><td colspan="6">No stock corrections recorded yet.</td></tr>';
+      $('adjustments-pagination').innerHTML = adjTotalPages > 1
+        ? `<div class="pagination-controls">
+             <button class="page-btn" data-page-target="adjustments" data-page-dir="-1" ${state.adjustmentsPage === 0 ? 'disabled' : ''}>← Prev</button>
+             <span class="page-info">Page ${state.adjustmentsPage + 1} of ${adjTotalPages}</span>
+             <button class="page-btn" data-page-target="adjustments" data-page-dir="1" ${state.adjustmentsPage >= adjTotalPages - 1 ? 'disabled' : ''}>Next →</button>
+           </div>`
+        : '';
+    }
     document.querySelectorAll('[data-admin-panel]').forEach((panel) => {
       panel.hidden = panel.dataset.adminPanel !== state.adminTab;
     });
@@ -1650,10 +1685,9 @@
         method: 'PATCH',
         body: JSON.stringify({ mode, value, reason }),
       }));
-      state.products = state.products.map((p) =>
-        Number(p.id) === Number(stockAdjustProductId) ? { ...p, warehouse_stock: updated.warehouse_stock } : p);
       closeStockAdjust();
-      renderAdmin();
+      // Reload so both the product stock and the adjustment history refresh.
+      await loadAdminData();
       adminMessage(`Warehouse stock updated to ${integer(updated.warehouse_stock)}.`);
       toast('Warehouse stock corrected.');
     } catch (error) {
@@ -1795,6 +1829,7 @@
         const target = pageBtn.dataset.pageTarget;
         if (target === 'settlement') { state.settlementPage = Math.max(0, state.settlementPage + dir); renderSettlement(); }
         if (target === 'purchases')  { state.purchasesPage  = Math.max(0, state.purchasesPage  + dir); renderAdmin(); }
+        if (target === 'adjustments'){ state.adjustmentsPage = Math.max(0, state.adjustmentsPage + dir); renderAdmin(); }
         if (target === 'inv-bills')  { state.invBillsPage   = Math.max(0, state.invBillsPage   + dir); renderInventoryReport(); }
         if (target === 'pr-days')    { state.paymentsReportPage = Math.max(0, state.paymentsReportPage + dir); renderPaymentsReport(); }
       }
