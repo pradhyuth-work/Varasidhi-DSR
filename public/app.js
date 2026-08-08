@@ -1421,9 +1421,19 @@
   }
 
   async function deleteProduct(productId) {
-    if (!window.confirm('Delete this product? Products with route dispatch history are protected.')) return;
+    if (!window.confirm('Delete this product?')) return;
+    const url = (force) => `/api/products/${encodeURIComponent(productId)}${force ? '?force=true' : ''}`;
     try {
-      await request(`/api/products/${encodeURIComponent(productId)}`, adminOptions({ method: 'DELETE' }));
+      try {
+        await request(url(false), adminOptions({ method: 'DELETE' }));
+      } catch (error) {
+        if (!/history|dispatch/i.test(error.message)) throw error;
+        if (!window.confirm('This product has dispatch history.\n\nFORCE DELETE will permanently remove it AND its purchase, return, and line-item records. This cannot be undone.\n\nContinue?')) {
+          adminMessage('Delete cancelled.');
+          return;
+        }
+        await request(url(true), adminOptions({ method: 'DELETE' }));
+      }
       state.products = state.products.filter((p) => Number(p.id) !== Number(productId));
       renderAdmin();
       adminMessage('Product deleted.');
@@ -1444,9 +1454,20 @@
   }
 
   async function deleteProfile(profileId) {
-    if (!window.confirm('Delete this buyer profile? Profiles with route history are protected.')) return;
+    if (!window.confirm('Delete this buyer profile?')) return;
+    const url = (force) => `/api/profiles/${encodeURIComponent(profileId)}${force ? '?force=true' : ''}`;
     try {
-      await request(`/api/profiles/${encodeURIComponent(profileId)}`, adminOptions({ method: 'DELETE' }));
+      try {
+        await request(url(false), adminOptions({ method: 'DELETE' }));
+      } catch (error) {
+        if (!/history/i.test(error.message)) throw error;
+        // History-protected: offer a hard force delete with a clear warning.
+        if (!window.confirm('This buyer has route history.\n\nFORCE DELETE will permanently remove this buyer AND all of their sessions, payments, and sales history. This cannot be undone.\n\nContinue?')) {
+          adminMessage('Delete cancelled.');
+          return;
+        }
+        await request(url(true), adminOptions({ method: 'DELETE' }));
+      }
       state.profiles = state.profiles.filter((profile) => Number(profile.id) !== Number(profileId));
       if (Number(state.selectedBuyerId) === Number(profileId)) {
         state.selectedBuyerId = state.profiles[0]?.id ?? null;

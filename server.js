@@ -245,6 +245,7 @@ app.delete("/api/profiles/:id", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can delete buyer profiles.");
   const profileId = positiveInteger(req.params.id);
   if (profileId === null || profileId < 1) return fail(res, 400, "Invalid profile id.");
+  const force = req.query.force === "true";
   try {
     const profile = await database.get("SELECT id FROM profiles WHERE id = ?", [profileId]);
     if (!profile) return fail(res, 404, "Buyer profile not found.");
@@ -252,10 +253,20 @@ app.delete("/api/profiles/:id", async (req, res) => {
       "SELECT COUNT(*) AS count FROM dsr_sessions WHERE buyer_id = ?",
       [profileId],
     );
-    if (Number(history?.count) > 0) {
+    if (Number(history?.count) > 0 && !force) {
       return fail(res, 409, "Profiles with route history cannot be deleted.");
     }
-    await database.run("DELETE FROM profiles WHERE id = ?", [profileId]);
+    // Force delete cascades the buyer's entire history. dsr_items and payments
+    // cascade off dsr_sessions automatically; stock_returns do not, so clear
+    // those first. All inside one transaction.
+    await withTransaction(async (tx) => {
+      await tx.run(
+        "DELETE FROM stock_returns WHERE dsr_id IN (SELECT id FROM dsr_sessions WHERE buyer_id = ?)",
+        [profileId],
+      );
+      await tx.run("DELETE FROM dsr_sessions WHERE buyer_id = ?", [profileId]);
+      await tx.run("DELETE FROM profiles WHERE id = ?", [profileId]);
+    });
     res.status(204).end();
   } catch (error) {
     console.error("Failed to delete profile", error);
@@ -381,6 +392,7 @@ app.delete("/api/products/:id", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can delete products.");
   const productId = positiveInteger(req.params.id);
   if (productId === null || productId < 1) return fail(res, 400, "Invalid product id.");
+  const force = req.query.force === "true";
   try {
     const product = await database.get("SELECT id FROM products WHERE id = ?", [productId]);
     if (!product) return fail(res, 404, "Product not found.");
@@ -388,11 +400,17 @@ app.delete("/api/products/:id", async (req, res) => {
       "SELECT COUNT(*) AS count FROM dsr_items WHERE product_id = ? AND (loaded_stock > 0 OR qty_sold > 0)",
       [productId],
     );
-    if (Number(history?.count) > 0) {
+    if (Number(history?.count) > 0 && !force) {
       return fail(res, 409, "Products with route dispatch history cannot be deleted.");
     }
-    await database.run("DELETE FROM dsr_items WHERE product_id = ?", [productId]);
-    await database.run("DELETE FROM products WHERE id = ?", [productId]);
+    // Force delete also removes the product's purchase and return records, which
+    // reference it directly, before removing the product itself.
+    await withTransaction(async (tx) => {
+      await tx.run("DELETE FROM stock_returns WHERE product_id = ?", [productId]);
+      await tx.run("DELETE FROM purchases WHERE product_id = ?", [productId]);
+      await tx.run("DELETE FROM dsr_items WHERE product_id = ?", [productId]);
+      await tx.run("DELETE FROM products WHERE id = ?", [productId]);
+    });
     res.status(204).end();
   } catch (error) {
     console.error("Failed to delete product", error);
