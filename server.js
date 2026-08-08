@@ -899,9 +899,12 @@ app.get("/api/reports/performance", async (req, res) => {
 
     // Overall summary
     const summary = await database.get(
+      // total_revenue sums item-level line_total (not s.total_sales): joining
+      // sessions to items would otherwise count each session's sales once per
+      // line item, inflating the figure.
       `SELECT COUNT(DISTINCT s.id)              AS session_count,
               COALESCE(SUM(i.qty_sold), 0)      AS total_qty,
-              COALESCE(SUM(s.total_sales), 0)   AS total_revenue
+              COALESCE(SUM(i.line_total), 0)    AS total_revenue
          FROM dsr_sessions s
          JOIN dsr_items i ON i.dsr_id = s.id
         WHERE s.status = 'SETTLED'
