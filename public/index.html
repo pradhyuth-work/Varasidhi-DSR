@@ -667,6 +667,33 @@
         </form>
       </div>
     </div>
+    <div class="modal-backdrop" id="stock-adjust-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="stock-adjust-title">
+        <button class="modal-close" id="close-stock-adjust" type="button" aria-label="Close">×</button>
+        <div class="section-kicker"><span class="section-number">📦</span><span>STOCK CORRECTION</span></div>
+        <h2 id="stock-adjust-title">Correct warehouse stock</h2>
+        <p class="modal-intro"><strong id="stock-adjust-product">Product</strong> · current stock <strong id="stock-adjust-current">0</strong></p>
+        <form id="stock-adjust-form" autocomplete="off">
+          <div class="stock-mode-toggle">
+            <label><input type="radio" name="stock-mode" value="set" checked /> <span>Set to exact count</span></label>
+            <label><input type="radio" name="stock-mode" value="adjust" /> <span>Adjust by ±</span></label>
+          </div>
+          <label class="form-field">
+            <span id="stock-value-label">New counted quantity</span>
+            <input id="stock-adjust-value" type="number" step="1" required />
+          </label>
+          <label class="form-field">
+            <span>Reason</span>
+            <input id="stock-adjust-reason" type="text" maxlength="200" placeholder="e.g. physical count, damaged, data fix" />
+          </label>
+          <p id="stock-adjust-error" class="admin-auth-error" hidden></p>
+          <div class="modal-actions">
+            <button class="button button-quiet" id="cancel-stock-adjust" type="button">Cancel</button>
+            <button class="button button-primary" type="submit" id="submit-stock-adjust">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
     <script src="/app.js" defer></script>
   </body>

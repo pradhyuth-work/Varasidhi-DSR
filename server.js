@@ -388,6 +388,50 @@ app.patch("/api/products/:id/rate", async (req, res) => {
   }
 });
 
+// Manual warehouse-stock correction for a discrepancy. mode "set" writes an
+// absolute count; mode "adjust" applies a signed delta. Every change is logged
+// to stock_adjustments with a reason.
+app.patch("/api/products/:id/stock", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can adjust warehouse stock.");
+  const productId = positiveInteger(req.params.id);
+  const mode = req.body?.mode === "adjust" ? "adjust" : "set";
+  const reason = String(req.body?.reason || "").trim().slice(0, 200);
+  const rawValue = Number(req.body?.value);
+  if (productId === null || productId < 1 || !Number.isInteger(rawValue)) {
+    return fail(res, 400, "A valid product and whole-number value are required.");
+  }
+  try {
+    const result = await withTransaction(async (tx) => {
+      const product = await tx.get(
+        "SELECT id, warehouse_stock FROM products WHERE id = ?",
+        [productId],
+      );
+      if (!product) return { notFound: true };
+      const oldStock = product.warehouse_stock;
+      const newStock = mode === "set" ? rawValue : oldStock + rawValue;
+      if (newStock < 0) {
+        return { invalid: "Resulting stock cannot be negative." };
+      }
+      await tx.run("UPDATE products SET warehouse_stock = ? WHERE id = ?", [newStock, productId]);
+      await tx.run(
+        `INSERT INTO stock_adjustments (product_id, old_stock, new_stock, delta, mode, reason)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [productId, oldStock, newStock, newStock - oldStock, mode, reason],
+      );
+      return { oldStock, newStock };
+    });
+    if (result.notFound) return fail(res, 404, "Product not found.");
+    if (result.invalid) return fail(res, 400, result.invalid);
+    res.json(await database.get(
+      "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ?",
+      [productId],
+    ));
+  } catch (error) {
+    console.error("Failed to adjust stock", error);
+    fail(res, 500, "Unable to adjust warehouse stock.");
+  }
+});
+
 app.delete("/api/products/:id", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can delete products.");
   const productId = positiveInteger(req.params.id);

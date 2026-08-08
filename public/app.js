@@ -236,7 +236,7 @@
     $('products-body').innerHTML = state.products.length
       ? state.products.map((product) => `<tr>
           <td><div class="product-cell"><span class="product-index">${String(product.id).padStart(2, '0')}</span><span>${escapeHtml(product.name)}</span></div></td>
-          <td class="stock-quiet">${integer(product.warehouse_stock)}</td>
+          <td class="stock-quiet"><div class="stock-cell"><span>${integer(product.warehouse_stock)}</span><button class="button button-quiet compact-button stock-adjust" type="button" data-stock-adjust="${escapeHtml(product.id)}">Adjust</button></div></td>
           <td class="price">${currency(product.unit_price)}</td>
           <td><div class="inline-rate"><span>₹</span><input class="admin-number-input rate-input" data-product-id="${escapeHtml(product.id)}" type="number" min="0.01" step="0.01" value="${Number(product.unit_price).toFixed(2)}" aria-label="New rate for ${escapeHtml(product.name)}" /></div></td>
           <td><button class="button button-quiet compact-button rate-save" type="button" data-product-id="${escapeHtml(product.id)}">Save rate</button></td>
@@ -1592,9 +1592,85 @@
     window.location.reload();
   }
 
+  // ---- Warehouse stock correction ----------------------------------------
+  let stockAdjustProductId = null;
+  function currentStockMode() {
+    const el = document.querySelector('input[name="stock-mode"]:checked');
+    return el ? el.value : 'set';
+  }
+  function updateStockModeUI() {
+    const mode = currentStockMode();
+    const input = $('stock-adjust-value');
+    const product = state.products.find((p) => Number(p.id) === Number(stockAdjustProductId));
+    if (mode === 'set') {
+      $('stock-value-label').textContent = 'New counted quantity';
+      input.min = '0';
+      input.placeholder = '';
+      if (product) input.value = product.warehouse_stock;
+    } else {
+      $('stock-value-label').textContent = 'Adjust by (use − to reduce)';
+      input.removeAttribute('min');
+      input.placeholder = 'e.g. -3';
+      input.value = '';
+    }
+  }
+  function openStockAdjust(productId) {
+    const product = state.products.find((p) => Number(p.id) === Number(productId));
+    if (!product) return;
+    stockAdjustProductId = product.id;
+    $('stock-adjust-product').textContent = product.name;
+    $('stock-adjust-current').textContent = integer(product.warehouse_stock);
+    $('stock-adjust-form').reset();
+    document.querySelector('input[name="stock-mode"][value="set"]').checked = true;
+    $('stock-adjust-reason').value = '';
+    updateStockModeUI();
+    setHidden('stock-adjust-error', true);
+    setHidden('stock-adjust-modal', false);
+    window.setTimeout(() => $('stock-adjust-value').focus(), 40);
+  }
+  function closeStockAdjust() { setHidden('stock-adjust-modal', true); stockAdjustProductId = null; }
+  function showStockError(msg) {
+    const e = $('stock-adjust-error');
+    e.textContent = msg; setHidden('stock-adjust-error', false);
+  }
+  async function submitStockAdjust(event) {
+    event.preventDefault();
+    if (stockAdjustProductId == null) return;
+    const mode = currentStockMode();
+    const value = Number($('stock-adjust-value').value);
+    const reason = $('stock-adjust-reason').value.trim();
+    if (!Number.isInteger(value)) return showStockError('Enter a whole number.');
+    if (mode === 'set' && value < 0) return showStockError('Count cannot be negative.');
+    if (mode === 'adjust' && value === 0) return showStockError('Enter a non-zero adjustment.');
+    const btn = $('submit-stock-adjust');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    setHidden('stock-adjust-error', true);
+    try {
+      const updated = await request(`/api/products/${encodeURIComponent(stockAdjustProductId)}/stock`, adminOptions({
+        method: 'PATCH',
+        body: JSON.stringify({ mode, value, reason }),
+      }));
+      state.products = state.products.map((p) =>
+        Number(p.id) === Number(stockAdjustProductId) ? { ...p, warehouse_stock: updated.warehouse_stock } : p);
+      closeStockAdjust();
+      renderAdmin();
+      adminMessage(`Warehouse stock updated to ${integer(updated.warehouse_stock)}.`);
+      toast('Warehouse stock corrected.');
+    } catch (error) {
+      showStockError(error.message);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save';
+    }
+  }
+
   function bindEvents() {
     $('login-form').addEventListener('submit', submitLogin);
     $('logout-btn').addEventListener('click', doLogout);
+    $('close-stock-adjust').addEventListener('click', closeStockAdjust);
+    $('cancel-stock-adjust').addEventListener('click', closeStockAdjust);
+    $('stock-adjust-modal').addEventListener('click', (event) => { if (event.target === $('stock-adjust-modal')) closeStockAdjust(); });
+    $('stock-adjust-form').addEventListener('submit', submitStockAdjust);
+    document.querySelectorAll('input[name="stock-mode"]').forEach((r) => r.addEventListener('change', updateStockModeUI));
     $('buyer-select').addEventListener('change', (event) => loadSession(event.target.value));
     $('role-select').addEventListener('change', (event) => {
       const chosen = event.target.value;
@@ -1701,6 +1777,8 @@
       if (deleteButton) deletePayment(deleteButton.dataset.deletePayment);
       const rateButton = event.target.closest('[data-product-id].rate-save');
       if (rateButton) saveRate(rateButton.dataset.productId);
+      const stockButton = event.target.closest('[data-stock-adjust]');
+      if (stockButton) openStockAdjust(stockButton.dataset.stockAdjust);
       const pidButton = event.target.closest('[data-product-id].pid-save');
       if (pidButton) changeProductId(pidButton.dataset.productId);
       const profileDeleteButton = event.target.closest('[data-delete-profile]');
