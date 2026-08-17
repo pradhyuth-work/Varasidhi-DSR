@@ -881,7 +881,7 @@ app.get("/api/reports/inventory", async (req, res) => {
     );
 
     const inventory = await database.all(
-      "SELECT id, name, warehouse_stock, unit_price FROM products ORDER BY name",
+      "SELECT id, name, warehouse_stock, unit_price FROM products ORDER BY id",
     );
 
     res.json({ filters: { from, to }, bills, inventory });
@@ -1079,7 +1079,7 @@ app.get("/api/reports/product-sales", async (req, res) => {
                AND (?::int IS NULL OR ds.buyer_id = ?)
          ) i ON i.product_id = p.id
         GROUP BY p.id, p.name, p.unit_price
-        ORDER BY total_revenue DESC, p.id`,
+        ORDER BY p.id`,
       [from, to, profileId, profileId],
     );
 
