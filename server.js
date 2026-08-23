@@ -810,6 +810,57 @@ app.post("/api/dsr/return-stock", async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Full database backup. Admin-only. Dumps every application table into a single
+// JSON file the browser downloads. Table order is parent-before-child so the
+// file can be replayed with inserts in this same sequence without tripping a
+// foreign key. Names are hard-coded constants (never user input) because they
+// are interpolated straight into the SELECT.
+// ---------------------------------------------------------------------------
+const BACKUP_TABLES = [
+  "profiles",
+  "products",
+  "dsr_sessions",
+  "dsr_items",
+  "payments",
+  "purchases",
+  "stock_returns",
+  "stock_adjustments",
+];
+
+app.get("/api/backup", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can download a database backup.");
+  try {
+    const tables = {};
+    const rowCounts = {};
+    for (const table of BACKUP_TABLES) {
+      const rows = await database.all(`SELECT * FROM ${table} ORDER BY id`);
+      tables[table] = rows;
+      rowCounts[table] = rows.length;
+    }
+    const backup = {
+      format: "dsr-backup",
+      version: 1,
+      generated_at: new Date().toISOString(),
+      table_order: BACKUP_TABLES,
+      row_counts: rowCounts,
+      tables,
+    };
+    // Local calendar-time stamp so the filename matches the operator's day.
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const stamp =
+      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+      `-${pad(now.getHours())}${pad(now.getMinutes())}`;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="dsr-backup-${stamp}.json"`);
+    res.send(JSON.stringify(backup, null, 2));
+  } catch (error) {
+    console.error("Failed to create database backup", error);
+    fail(res, 500, "Unable to create the database backup.");
+  }
+});
+
 app.get("/api/reports/csv", async (_req, res) => {
   try {
     const startOfMonth = `${today().slice(0, 7)}-01`;

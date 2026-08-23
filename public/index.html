@@ -295,6 +295,7 @@
               <button class="admin-tab" type="button" data-admin-tab="purchases">Inventory inwarding</button>
               <button class="admin-tab" type="button" data-admin-tab="reports">Sales reports</button>
               <button class="admin-tab" type="button" data-admin-tab="payments-report">Payments &amp; balances</button>
+              <button class="admin-tab" type="button" data-admin-tab="backup">Backup</button>
             </div>
 
             <section class="admin-panel active" data-admin-panel="masters">
@@ -550,6 +551,25 @@
                  </div>
                </div>
              </section>
+
+            <section class="admin-panel" data-admin-panel="backup" hidden>
+              <div class="admin-grid">
+                <div class="admin-card">
+                  <div class="section-kicker"><span class="section-number">01</span><span>FULL BACKUP</span></div>
+                  <h2>Download a database backup</h2>
+                  <p class="card-copy">Saves every record in the system — buyers, products, DSR sessions, line items, payments, purchases, stock returns and stock adjustments — as a single JSON file on your computer.</p>
+                  <div id="backup-counts" class="backup-counts" hidden></div>
+                  <button class="button button-primary" type="button" id="download-backup">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download full backup
+                  </button>
+                  <p class="backup-hint">Keep the file somewhere safe. It contains all business data in plain text.</p>
+                </div>
+                <div class="admin-card notice-card">
+                  <span class="notice-icon">↗</span>
+                  <div><b>This is a download, not a scheduled backup</b><p>The file captures the database exactly as it is at the moment you press the button. Take a fresh one after any day you would not want to re-enter by hand.</p></div>
+                </div>
+              </div>
+            </section>
 
           </div>
 

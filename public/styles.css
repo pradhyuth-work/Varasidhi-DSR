@@ -657,3 +657,11 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
 }
+
+/* ---- Database backup ------------------------------------------------------ */
+.backup-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.backup-counts span { border: 1px solid var(--line); border-radius: 5px; padding: 5px 9px; font-size: 11px; color: var(--ink-soft); background: var(--paper); font-variant-numeric: tabular-nums; }
+.backup-counts b { color: var(--ink); margin-right: 4px; }
+.backup-counts .backup-total { border-color: #a5c4b9; background: var(--mint); color: var(--teal); }
+.backup-counts .backup-total b { color: var(--teal); }
+.backup-hint { color: #87928e; font-size: 11px; margin: 12px 0 0; }

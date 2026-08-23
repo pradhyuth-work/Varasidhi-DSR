@@ -561,6 +561,52 @@
     URL.revokeObjectURL(url);
   }
 
+  // Full database backup. The server returns the whole dump as one JSON body;
+  // we keep the text so the row counts can be shown back to the operator as
+  // confirmation of what actually landed in the file.
+  async function downloadBackup() {
+    const button = $('download-backup');
+    const originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.textContent = 'Preparing backup…';
+    try {
+      const response = await fetch('/api/backup', { credentials: 'include' });
+      if (!response.ok) {
+        let message = `Backup failed (${response.status})`;
+        try { const body = await response.json(); message = body.error || message; } catch (_) { /* non-json error */ }
+        throw new Error(message);
+      }
+      const text = await response.text();
+      const match = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') || '');
+      downloadTextFile(text, match ? match[1] : `dsr-backup-${todayIso()}.json`, 'application/json');
+
+      let counts = null;
+      try { counts = JSON.parse(text).row_counts; } catch (_) { /* still downloaded fine */ }
+      const target = $('backup-counts');
+      if (target && counts) {
+        const total = Object.values(counts).reduce((sum, n) => sum + Number(n || 0), 0);
+        target.innerHTML = Object.entries(counts)
+          .map(([table, n]) => `<span><b>${escapeHtml(String(n))}</b> ${escapeHtml(table.replace(/_/g, ' '))}</span>`)
+          .join('') + `<span class="backup-total"><b>${total}</b> rows total</span>`;
+        target.hidden = false;
+      }
+      toast('Backup downloaded.');
+    } catch (error) {
+      adminMessage(error.message, true);
+    } finally {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+    }
+  }
+
+  function downloadTextFile(text, filename, mime) {
+    const blob = new Blob([text], { type: `${mime};charset=utf-8;` });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = filename; link.click();
+    URL.revokeObjectURL(url);
+  }
+
   function renderInventoryReport() {
     if (!$('inv-bills-body')) return;
     const loading = state.inventoryLoading;
@@ -1769,6 +1815,7 @@
     $('apply-settle-filters').addEventListener('click', () => { state.settlementData = null; state.selectedSettlementIdx = 0; loadSettlement(); });
     $('apply-pr-filters').addEventListener('click', loadPaymentsReport);
     $('pr-download-csv').addEventListener('click', downloadPaymentsReportCsv);
+    $('download-backup').addEventListener('click', downloadBackup);
     $('settle-download-csv').addEventListener('click', downloadSettlementCsv);
     $('return-stock-btn').addEventListener('click', openReturnStockModal);
     $('close-return-stock').addEventListener('click', () => setHidden('return-stock-modal', true));

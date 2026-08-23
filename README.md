@@ -72,6 +72,26 @@ npm run dev           # http://localhost:3000
 4. Deploy. `vercel.json` routes all traffic to the single Express function and
    bundles `public/`.
 
+## Database backup
+
+Admin → **Backup** → **Download full backup** saves the entire database as one
+JSON file (`dsr-backup-YYYY-MM-DD-HHMM.json`) via `GET /api/backup`.
+
+- **Admin only.** The route is gated on the session cookie's role; a `user`
+  session gets a 403.
+- **Everything is included:** `profiles`, `products`, `dsr_sessions`,
+  `dsr_items`, `payments`, `purchases`, `stock_returns`, `stock_adjustments`.
+- **Shape:** `{ format, version, generated_at, table_order, row_counts, tables }`.
+  `table_order` lists tables parent-before-child, so replaying inserts in that
+  order satisfies the foreign keys.
+- **Point-in-time.** It is a manual download, not a scheduled job — the file
+  reflects the moment the button was pressed.
+- The file holds all business data in plain text; store it accordingly.
+
+There is no in-app restore. To reload a backup, insert the tables in
+`table_order` and then reset the identity sequences, e.g.
+`SELECT setval(pg_get_serial_sequence('profiles','id'), MAX(id)) FROM profiles;`
+
 ## Notes
 
 - **Money math** stays in JS (`roundMoney`), so money columns use `double precision`.
