@@ -1488,13 +1488,27 @@
     if (customId !== null && (!Number.isInteger(customId) || customId < 1)) {
       return adminMessage('Product ID must be a positive whole number, or leave it blank for auto-assign.', true);
     }
+    // Inserting onto an occupied ID renumbers that product and everything after
+    // it, rewriting IDs across dispatch and purchase history — confirm first.
+    if (customId !== null) {
+      const occupant = state.products.find((p) => Number(p.id) === customId);
+      if (occupant) {
+        const moving = state.products.filter((p) => Number(p.id) >= customId).length;
+        if (!confirm(`Insert "${name}" at ID ${customId}?\n\n"${occupant.name}" and ${moving - 1} product(s) after it will move up by one (${customId} → ${customId + 1}, and so on).\n\nHistorical dispatch, purchase and stock records follow their products, so figures are unaffected — but the ID printed against them changes.`)) {
+          return;
+        }
+      }
+    }
     setBusy(true, 'add-product');
     try {
       const product = await request('/api/products', adminOptions({ method: 'POST', body: JSON.stringify({ name, initialStock, unitPrice, ...(customId !== null && { customId }) }) }));
-      state.products.push(product);
       $('product-form').reset();
-      renderAdmin();
-      adminMessage('Product added to the master.');
+      // An insert-at-position renumbers other products, so pull the whole list
+      // back from the server rather than appending to the local copy.
+      await loadAdminData();
+      adminMessage(product.shifted
+        ? `Product inserted at ID ${product.id}. ${product.shifted} product(s) moved up by one.`
+        : 'Product added to the master.');
       toast('Product master updated.');
       // Refresh the active DSR session so the new product appears in
       // load-in and closing tables without the user switching buyers.

@@ -93,6 +93,24 @@ There is no in-app restore. To reload a backup, insert the tables in
 `table_order` and then reset the identity sequences, e.g.
 `SELECT setval(pg_get_serial_sequence('profiles','id'), MAX(id)) FROM profiles;`
 
+## Product IDs (insert-at-position)
+
+Adding a product with an explicit **Product ID** inserts it *at* that position.
+If the ID is already taken, that product and every product after it shift up by
+one — give a new product ID 29 and the old 29 becomes 30, 30 becomes 31, and so
+on. Leaving the field blank auto-assigns the next free ID.
+
+- All four tables holding a `products.id` foreign key (`dsr_items`,
+  `purchases`, `stock_returns`, `stock_adjustments`) are carried along, so
+  historical figures are unaffected — only the ID printed against them changes.
+- The shift runs in one transaction as a park-and-land: the affected range is
+  moved above `MAX(id)` first, then lands one higher. `products_pkey` and
+  `dsr_items`' `UNIQUE (dsr_id, product_id)` are **not** deferrable, so a plain
+  `id = id + 1` would collide with the row it is about to overwrite.
+- The identity sequence is re-synced after any write that sets IDs by hand.
+  Explicit inserts do not advance it, so without this it drifts behind
+  `MAX(id)` and the next auto-assigned ID collides with a live row.
+
 ## Ledger corrections
 
 Admin → **Profile / buyer manager** → **Correct** (next to a buyer's balance)

@@ -304,7 +304,7 @@
                   <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT MASTER</span></div>
                   <h2>Add a product</h2>
                   <p class="card-copy">Create a product with its starting warehouse count and current selling rate.</p>
-                  <label class="form-field"><span>Product ID <span class="field-optional">(optional — auto-assigned if blank)</span></span><input id="product-custom-id" type="number" min="1" step="1" placeholder="e.g. 5" /></label>
+                  <label class="form-field"><span>Product ID <span class="field-optional">(optional — auto-assigned if blank)</span></span><input id="product-custom-id" type="number" min="1" step="1" placeholder="e.g. 5" /><small class="field-hint">If that ID is already taken, the new product is inserted there and every product after it moves up by one.</small></label>
                   <label class="form-field"><span>Product name</span><input id="product-name" required maxlength="120" placeholder="e.g. Item D · Personal care" /></label>
                   <label class="form-field"><span>Initial warehouse stock</span><input id="product-stock" type="number" min="0" step="1" required placeholder="0" /></label>
                   <label class="form-field"><span>Unit price</span><div class="amount-input"><span>₹</span><input id="product-price" type="number" min="0.01" step="0.01" required placeholder="0.00" /></div></label>

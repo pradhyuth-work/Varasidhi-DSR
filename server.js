@@ -424,6 +424,42 @@ app.get("/api/products", async (_req, res) => {
   }
 });
 
+// Every table holding a products.id foreign key. All four are DEFERRABLE
+// INITIALLY DEFERRED (see db/schema.sql), so children can be repointed before
+// the parent PK moves; the constraints are validated at COMMIT.
+const PRODUCT_CHILD_TABLES = ["dsr_items", "purchases", "stock_returns", "stock_adjustments"];
+
+// Make room at startId by shifting that product and everything after it up by
+// one, carrying all child rows along.
+//
+// This cannot be done as a single `id = id + 1`: products_pkey and
+// dsr_items' UNIQUE (dsr_id, product_id) are NOT deferrable, so a row moving
+// 29 -> 30 collides with the existing 30 the moment it is written. Instead park
+// the whole affected range above the current maximum, then land it one higher —
+// the destination range is empty by then, so no row ever collides.
+async function shiftProductIdsFrom(tx, startId) {
+  const { max } = await tx.get("SELECT COALESCE(MAX(id), 0) AS max FROM products");
+  const park = Number(max) + 1000;
+  for (const table of PRODUCT_CHILD_TABLES) {
+    await tx.run(`UPDATE ${table} SET product_id = product_id + ? WHERE product_id >= ?`, [park, startId]);
+  }
+  await tx.run("UPDATE products SET id = id + ? WHERE id >= ?", [park, startId]);
+  for (const table of PRODUCT_CHILD_TABLES) {
+    await tx.run(`UPDATE ${table} SET product_id = product_id - ? + 1 WHERE product_id > ?`, [park, park]);
+  }
+  await tx.run("UPDATE products SET id = id - ? + 1 WHERE id > ?", [park, park]);
+}
+
+// Explicit ids (custom inserts, shifts, renumbering) never advance the identity
+// sequence, so it drifts behind MAX(id) and the next auto-assigned id collides
+// with a live row. Re-point it after any operation that writes ids by hand.
+async function resyncProductSequence(tx) {
+  await tx.run(
+    `SELECT setval(pg_get_serial_sequence('products', 'id'),
+                   GREATEST((SELECT COALESCE(MAX(id), 1) FROM products), 1))`,
+  );
+}
+
 app.post("/api/products", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can add products.");
   const name = String(req.body?.name || "").trim();
@@ -437,35 +473,58 @@ app.post("/api/products", async (req, res) => {
     return fail(res, 400, "Product ID must be a positive whole number.");
   }
   try {
-    if (customId !== null) {
-      const existing = await database.get("SELECT id FROM products WHERE id = ?", [customId]);
-      if (existing) return fail(res, 409, `Product ID ${customId} is already in use.`);
-    }
-    const created = await database.run(
-      customId !== null
-        ? "INSERT INTO products (id, name, warehouse_stock, unit_price) VALUES (?, ?, ?, ?)"
-        : "INSERT INTO products (name, warehouse_stock, unit_price) VALUES (?, ?, ?)",
-      customId !== null ? [customId, name, initialStock, unitPrice] : [name, initialStock, unitPrice],
-    );
-    // Backfill a dsr_items row into every currently open session so the new
-    // product appears in load-in and closing tables without restarting a route.
-    const openSessions = await database.all(
-      "SELECT id FROM dsr_sessions WHERE status = 'IN_PROGRESS'",
-    );
-    for (const session of openSessions) {
-      await database.run(
-        `INSERT INTO dsr_items
-          (dsr_id, product_id, opening_stock, loaded_stock, closing_stock,
-           qty_sold, unit_price, line_total)
-         VALUES (?, ?, 0, 0, 0, 0, ?, 0)
-         ON CONFLICT (dsr_id, product_id) DO NOTHING`,
-        [session.id, created.id, unitPrice],
+    const outcome = await withTransaction(async (tx) => {
+      let newId = customId;
+      let shifted = 0;
+      if (customId !== null) {
+        const occupied = await tx.get("SELECT id FROM products WHERE id = ?", [customId]);
+        if (occupied) {
+          // Insert-at-position: the requested id is taken, so that product and
+          // every one after it slide up by one to open the slot.
+          const { count } = await tx.get(
+            "SELECT COUNT(*)::int AS count FROM products WHERE id >= ?",
+            [customId],
+          );
+          shifted = Number(count);
+          await shiftProductIdsFrom(tx, customId);
+        }
+        await tx.run(
+          "INSERT INTO products (id, name, warehouse_stock, unit_price) VALUES (?, ?, ?, ?)",
+          [customId, name, initialStock, unitPrice],
+        );
+      } else {
+        // Guard against a sequence that has drifted behind MAX(id), which would
+        // otherwise hand out an id that is already taken.
+        await resyncProductSequence(tx);
+        const created = await tx.run(
+          "INSERT INTO products (name, warehouse_stock, unit_price) VALUES (?, ?, ?)",
+          [name, initialStock, unitPrice],
+        );
+        newId = created.id;
+      }
+      await resyncProductSequence(tx);
+      // Backfill a dsr_items row into every currently open session so the new
+      // product appears in load-in and closing tables without restarting a route.
+      const openSessions = await tx.all(
+        "SELECT id FROM dsr_sessions WHERE status = 'IN_PROGRESS'",
       );
-    }
-    res.status(201).json(await database.get(
+      for (const session of openSessions) {
+        await tx.run(
+          `INSERT INTO dsr_items
+            (dsr_id, product_id, opening_stock, loaded_stock, closing_stock,
+             qty_sold, unit_price, line_total)
+           VALUES (?, ?, 0, 0, 0, 0, ?, 0)
+           ON CONFLICT (dsr_id, product_id) DO NOTHING`,
+          [session.id, newId, unitPrice],
+        );
+      }
+      return { newId, shifted };
+    });
+    const product = await database.get(
       "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ?",
-      [created.id],
-    ));
+      [outcome.newId],
+    );
+    res.status(201).json({ ...product, shifted: outcome.shifted });
   } catch (error) {
     if (error?.code === "23505") return fail(res, 409, "A product with that name already exists.");
     console.error("Failed to create product", error);
@@ -491,10 +550,13 @@ app.patch("/api/products/:id/product-id", async (req, res) => {
     // children can be repointed to newId before the parent PK row exists; the
     // constraints are validated at COMMIT.
     await withTransaction(async (tx) => {
-      await tx.run("UPDATE dsr_items   SET product_id = ? WHERE product_id = ?", [newId, oldId]);
-      await tx.run("UPDATE purchases    SET product_id = ? WHERE product_id = ?", [newId, oldId]);
-      await tx.run("UPDATE stock_returns SET product_id = ? WHERE product_id = ?", [newId, oldId]);
-      await tx.run("UPDATE products     SET id = ?         WHERE id = ?",         [newId, oldId]);
+      // Every child table must be repointed. Missing one leaves an orphan whose
+      // deferred FK fails at COMMIT and aborts the whole change.
+      for (const table of PRODUCT_CHILD_TABLES) {
+        await tx.run(`UPDATE ${table} SET product_id = ? WHERE product_id = ?`, [newId, oldId]);
+      }
+      await tx.run("UPDATE products SET id = ? WHERE id = ?", [newId, oldId]);
+      await resyncProductSequence(tx);
     });
     res.json({ id: newId, name: product.name, warehouse_stock: product.warehouse_stock, unit_price: product.unit_price });
   } catch (error) {
@@ -586,12 +648,14 @@ app.delete("/api/products/:id", async (req, res) => {
     if (Number(history?.count) > 0 && !force) {
       return fail(res, 409, "Products with route dispatch history cannot be deleted.");
     }
-    // Force delete also removes the product's purchase and return records, which
-    // reference it directly, before removing the product itself.
+    // Force delete clears every child row that references the product before
+    // removing it. Driven off PRODUCT_CHILD_TABLES so a table added later
+    // cannot be forgotten here — omitting one makes the delete fail on its
+    // foreign key.
     await withTransaction(async (tx) => {
-      await tx.run("DELETE FROM stock_returns WHERE product_id = ?", [productId]);
-      await tx.run("DELETE FROM purchases WHERE product_id = ?", [productId]);
-      await tx.run("DELETE FROM dsr_items WHERE product_id = ?", [productId]);
+      for (const table of PRODUCT_CHILD_TABLES) {
+        await tx.run(`DELETE FROM ${table} WHERE product_id = ?`, [productId]);
+      }
       await tx.run("DELETE FROM products WHERE id = ?", [productId]);
     });
     res.status(204).end();
@@ -1442,3 +1506,7 @@ app.get("/{*splat}", (_req, res) => res.sendFile(path.join(publicDir, "index.htm
 // (api/index.js) and by the local dev server (local.js). Schema init and
 // `app.listen` are handled in local.js, not here.
 export default app;
+
+// Exported for tests: the id-shift is the one operation that rewrites primary
+// keys across history, so it needs to be exercisable inside a rollback.
+export { shiftProductIdsFrom, resyncProductSequence, PRODUCT_CHILD_TABLES };
