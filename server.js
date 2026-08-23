@@ -695,37 +695,84 @@ app.get("/api/stock-adjustments", async (req, res) => {
   }
 });
 
+const MAX_PURCHASE_LINES = 50;
+
+// Record an incoming supplier bill. Accepts either a single product (the
+// original shape, kept so existing callers keep working) or a `lines` array of
+// { productId, qtyAdded } for a multi-product bill sharing one reference.
+//
+// The whole bill is applied in ONE transaction: either every line's stock lands
+// or none does. Posting a five-line bill as five separate requests could leave
+// stock half-applied if one failed partway.
+//
+// One purchases row is written per line, in bill order, so the log mirrors the
+// paper bill. A product legitimately appearing on two lines stays two rows.
 app.post("/api/inventory/purchase", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can record purchases.");
-  const productId = positiveInteger(req.body?.productId);
-  const qtyAdded = positiveInteger(req.body?.qtyAdded);
   const supplierRef = String(req.body?.supplierRef || "").trim();
-  if (productId === null || productId < 1 || qtyAdded === null || qtyAdded < 1) {
-    return fail(res, 400, "A product and a positive whole-number quantity are required.");
-  }
   if (supplierRef.length > 120) return fail(res, 400, "Supplier or bill reference is too long.");
+
+  const rawLines = Array.isArray(req.body?.lines)
+    ? req.body.lines
+    : [{ productId: req.body?.productId, qtyAdded: req.body?.qtyAdded }];
+  if (rawLines.length === 0) return fail(res, 400, "Add at least one product to the bill.");
+  if (rawLines.length > MAX_PURCHASE_LINES) {
+    return fail(res, 400, `A bill can hold at most ${MAX_PURCHASE_LINES} lines.`);
+  }
+
+  const lines = [];
+  for (const [index, line] of rawLines.entries()) {
+    const productId = positiveInteger(line?.productId);
+    const qtyAdded = positiveInteger(line?.qtyAdded);
+    if (productId === null || productId < 1 || qtyAdded === null || qtyAdded < 1) {
+      return fail(res, 400, rawLines.length === 1
+        ? "A product and a positive whole-number quantity are required."
+        : `Line ${index + 1}: choose a product and enter a positive whole-number quantity.`);
+    }
+    lines.push({ productId, qtyAdded });
+  }
+
   try {
-    const created = await withTransaction(async (tx) => {
-      const product = await tx.get("SELECT id FROM products WHERE id = ?", [productId]);
-      if (!product) throw new Error("Product not found.");
-      await tx.run(
-        "UPDATE products SET warehouse_stock = warehouse_stock + ? WHERE id = ?",
-        [qtyAdded, productId],
-      );
-      return tx.run(
-        "INSERT INTO purchases (product_id, qty_added, supplier_ref) VALUES (?, ?, ?)",
-        [productId, qtyAdded, supplierRef],
-      );
+    const createdIds = await withTransaction(async (tx) => {
+      const ids = [];
+      for (const [index, line] of lines.entries()) {
+        const product = await tx.get("SELECT id FROM products WHERE id = ?", [line.productId]);
+        if (!product) {
+          throw new Error(lines.length === 1
+            ? "Product not found."
+            : `Line ${index + 1}: product not found.`);
+        }
+        await tx.run(
+          "UPDATE products SET warehouse_stock = warehouse_stock + ? WHERE id = ?",
+          [line.qtyAdded, line.productId],
+        );
+        const created = await tx.run(
+          "INSERT INTO purchases (product_id, qty_added, supplier_ref) VALUES (?, ?, ?)",
+          [line.productId, line.qtyAdded, supplierRef],
+        );
+        ids.push(created.id);
+      }
+      return ids;
     });
-    res.status(201).json(await database.get(
+    const rows = await database.all(
       `SELECT pu.id, pu.product_id, p.name AS product_name, pu.qty_added,
               pu.supplier_ref, pu.created_at, p.warehouse_stock
-         FROM purchases pu JOIN products p ON p.id = pu.product_id WHERE pu.id = ?`,
-      [created.id],
-    ));
+         FROM purchases pu JOIN products p ON p.id = pu.product_id
+        WHERE pu.id = ANY(?::int[])
+        ORDER BY pu.id`,
+      [createdIds],
+    );
+    // A single-product post keeps returning the bare purchase object it always
+    // did; multi-line posts get the full set.
+    if (!Array.isArray(req.body?.lines)) return res.status(201).json(rows[0]);
+    res.status(201).json({
+      purchases: rows,
+      lineCount: rows.length,
+      totalQty: rows.reduce((sum, row) => sum + Number(row.qty_added), 0),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to record purchase.";
-    fail(res, message === "Product not found." ? 404 : 400, message);
+    fail(res, /not found/i.test(message) ? 404 : 400, message);
   }
 });
 

@@ -276,9 +276,7 @@
           <td><button class="delete-profile" type="button" data-delete-profile="${escapeHtml(profile.id)}">Delete</button></td>
         </tr>`).join('')
       : '<tr><td colspan="7">No buyer profiles found.</td></tr>';
-    $('purchase-product').innerHTML = state.products.length
-      ? state.products.map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.name)} · ${integer(product.warehouse_stock)} in stock</option>`).join('')
-      : '<option value="">Add a product first</option>';
+    refreshPurchaseProductOptions();
     $('inventory-total-products').textContent = integer(state.products.length);
     const PURCHASE_PAGE_SIZE = 20;
     const purchasesTotalPages = Math.max(1, Math.ceil(state.purchases.length / PURCHASE_PAGE_SIZE));
@@ -1655,22 +1653,88 @@
     } catch (error) { adminMessage(error.message, true); }
   }
 
+  // ---- Multi-product inwarding --------------------------------------------
+  // Lines are managed as live DOM nodes rather than re-rendered from state, so
+  // adding or removing one never discards what has been typed into the others.
+  const MAX_PURCHASE_LINES = 50;
+
+  function purchaseProductOptions() {
+    return state.products.length
+      ? state.products.map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.name)} · ${integer(product.warehouse_stock)} in stock</option>`).join('')
+      : '<option value="">Add a product first</option>';
+  }
+
+  function updatePurchaseLineControls() {
+    const rows = document.querySelectorAll('#purchase-lines .purchase-line');
+    // The first line is the bill itself — never removable.
+    rows.forEach((row) => { row.querySelector('.purchase-line-remove').hidden = rows.length <= 1; });
+    if ($('add-purchase-line')) $('add-purchase-line').disabled = rows.length >= MAX_PURCHASE_LINES;
+  }
+
+  function addPurchaseLine(focusIt = false) {
+    const container = $('purchase-lines');
+    if (!container || container.children.length >= MAX_PURCHASE_LINES) return;
+    const row = document.createElement('div');
+    row.className = 'purchase-line';
+    row.innerHTML = `<select class="purchase-line-product" required aria-label="Product">${purchaseProductOptions()}</select>`
+      + `<input class="purchase-line-qty number-input" type="number" min="1" step="1" required placeholder="Qty" aria-label="Quantity added" />`
+      + `<button class="delete-payment purchase-line-remove" type="button" aria-label="Remove this line">×</button>`;
+    container.appendChild(row);
+    updatePurchaseLineControls();
+    if (focusIt) row.querySelector('.purchase-line-qty').focus();
+  }
+
+  // Refresh the option lists in place (stock counts change as bills post),
+  // preserving whatever each line already has selected.
+  function refreshPurchaseProductOptions() {
+    const container = $('purchase-lines');
+    if (!container) return;
+    if (!container.children.length) addPurchaseLine();
+    const options = purchaseProductOptions();
+    container.querySelectorAll('.purchase-line-product').forEach((select) => {
+      const chosen = select.value;
+      select.innerHTML = options;
+      if (chosen && select.querySelector(`option[value="${CSS.escape(chosen)}"]`)) select.value = chosen;
+    });
+    updatePurchaseLineControls();
+  }
+
+  function resetPurchaseLines() {
+    const container = $('purchase-lines');
+    if (!container) return;
+    container.innerHTML = '';
+    addPurchaseLine();
+  }
+
+  function readPurchaseLines() {
+    return [...document.querySelectorAll('#purchase-lines .purchase-line')].map((row) => ({
+      productId: Number(row.querySelector('.purchase-line-product').value),
+      qtyAdded: Number(row.querySelector('.purchase-line-qty').value),
+    }));
+  }
+
   async function submitPurchase(event) {
     event.preventDefault();
-    const productId = Number($('purchase-product').value);
-    const qtyAdded = Number($('purchase-quantity').value);
+    const lines = readPurchaseLines();
     const supplierRef = $('purchase-reference').value.trim();
-    if (!Number.isInteger(productId) || productId < 1 || !Number.isInteger(qtyAdded) || qtyAdded < 1) {
-      return adminMessage('Choose a product and enter a positive whole-number quantity.', true);
+    if (!lines.length) return adminMessage('Add at least one product to the bill.', true);
+    for (const [index, line] of lines.entries()) {
+      if (!Number.isInteger(line.productId) || line.productId < 1 || !Number.isInteger(line.qtyAdded) || line.qtyAdded < 1) {
+        return adminMessage(lines.length === 1
+          ? 'Choose a product and enter a positive whole-number quantity.'
+          : `Line ${index + 1}: choose a product and enter a positive whole-number quantity.`, true);
+      }
     }
     setBusy(true, 'add-purchase');
     try {
-      const purchase = await request('/api/inventory/purchase', adminOptions({ method: 'POST', body: JSON.stringify({ productId, qtyAdded, supplierRef }) }));
-      state.purchases.unshift(purchase);
-      state.products = state.products.map((product) => Number(product.id) === productId ? { ...product, warehouse_stock: purchase.warehouse_stock } : product);
-      $('purchase-form').reset();
-      renderAdmin();
-      adminMessage(`Purchase posted. ${purchase.product_name} stock is now ${integer(purchase.warehouse_stock)}.`);
+      const result = await request('/api/inventory/purchase', adminOptions({ method: 'POST', body: JSON.stringify({ lines, supplierRef }) }));
+      $('purchase-reference').value = '';
+      resetPurchaseLines();
+      // Several products' stock moved, so pull the whole admin view back fresh.
+      await loadAdminData();
+      adminMessage(result.lineCount === 1
+        ? `Purchase posted. ${escapeHtml(result.purchases[0].product_name)} stock is now ${integer(result.purchases[0].warehouse_stock)}.`
+        : `Bill posted — ${result.lineCount} products, ${integer(result.totalQty)} units inwarded.`);
       toast('Inventory inwarded.');
     } catch (error) { adminMessage(error.message, true); } finally { setBusy(false, 'add-purchase'); }
   }
@@ -1991,6 +2055,13 @@
     $('product-form').addEventListener('submit', submitProduct);
     $('profile-form').addEventListener('submit', submitProfile);
     $('purchase-form').addEventListener('submit', submitPurchase);
+    $('add-purchase-line').addEventListener('click', () => addPurchaseLine(true));
+    $('purchase-lines').addEventListener('click', (event) => {
+      const remove = event.target.closest('.purchase-line-remove');
+      if (!remove) return;
+      remove.closest('.purchase-line').remove();
+      updatePurchaseLineControls();
+    });
     $('apply-report-filters').addEventListener('click', loadReport);
     $('report-download-csv').addEventListener('click', downloadReportCsv);
     $('apply-inv-filters').addEventListener('click', loadInventoryReport);

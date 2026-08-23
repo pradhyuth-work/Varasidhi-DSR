@@ -93,6 +93,22 @@ There is no in-app restore. To reload a backup, insert the tables in
 `table_order` and then reset the identity sequences, e.g.
 `SELECT setval(pg_get_serial_sequence('profiles','id'), MAX(id)) FROM profiles;`
 
+## Inventory inwarding (multi-product bills)
+
+Admin → **Inventory inwarding** posts a supplier bill. Add as many
+product + quantity lines as the bill has (up to 50) under one shared
+supplier/bill reference, then submit once.
+
+- **The whole bill is one transaction.** Either every line's stock lands or
+  none does — a bad line rolls the entire bill back rather than leaving stock
+  half-applied.
+- One `purchases` row is written per line, in bill order, so the log mirrors
+  the paper bill and existing reports are unaffected. A product appearing on
+  two lines stays two rows.
+- `POST /api/inventory/purchase` accepts either `lines: [{ productId,
+  qtyAdded }]` or the original single `productId` / `qtyAdded` shape, which
+  still returns a bare purchase object.
+
 ## Product IDs (insert-at-position)
 
 Adding a product with an explicit **Product ID** inserts it *at* that position.

@@ -347,9 +347,11 @@
                   <div class="section-kicker"><span class="section-number">01</span><span>INWARDING</span></div>
                   <h2>Record inventory purchase</h2>
                   <p class="card-copy">Post an incoming bill and increase warehouse stock immediately.</p>
-                  <label class="form-field"><span>Product</span><select id="purchase-product" required></select></label>
-                  <label class="form-field"><span>Quantity added</span><input id="purchase-quantity" type="number" min="1" step="1" required placeholder="0" /></label>
+                  <span class="form-field-label">Products on this bill</span>
+                  <div id="purchase-lines" class="purchase-lines"></div>
+                  <button class="button button-quiet compact-button purchase-add-line" type="button" id="add-purchase-line">+ Add another product</button>
                   <label class="form-field"><span>Supplier / bill reference <em>Optional</em></span><input id="purchase-reference" maxlength="120" placeholder="e.g. INV-2026-0042 · Acme Foods" /></label>
+                  <p class="field-hint" id="purchase-summary">Every line is posted together — if one fails, none are applied.</p>
                   <button class="button button-primary" type="submit" id="add-purchase">Post purchase inward</button>
                 </form>
                 <div class="admin-card inventory-callout"><span class="inventory-number" id="inventory-total-products">—</span><div><b>Product catalogue</b><p>Stock changes from inwarding are reflected in live dispatch availability.</p></div></div>
