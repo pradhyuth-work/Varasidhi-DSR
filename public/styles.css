@@ -665,3 +665,21 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .backup-counts .backup-total { border-color: #a5c4b9; background: var(--mint); color: var(--teal); }
 .backup-counts .backup-total b { color: var(--teal); }
 .backup-hint { color: #87928e; font-size: 11px; margin: 12px 0 0; }
+
+/* ---- Buyer rename + hide -------------------------------------------------- */
+.admin-text-input { width: 100%; min-width: 150px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--teal-deep); padding: 8px 9px; font: 12px var(--sans); outline: none; }
+.admin-text-input:focus { border-color: #a5c4b9; background: #fff; }
+.profile-row-hidden { opacity: .62; }
+.profile-row-hidden .profile-mini { filter: grayscale(1); }
+.hidden-badge { display: inline-block; margin-left: 8px; padding: 2px 6px; border-radius: 4px; background: var(--line); color: var(--ink-soft); font: 700 9px var(--mono); letter-spacing: .06em; vertical-align: middle; }
+
+/* ---- Mobile footer spacing ------------------------------------------------ */
+/* The live summary is the last thing on the page. On a phone it wraps to
+   multiple rows and previously ran straight into the bottom edge (no bottom
+   padding), leaving the ledger balance under the browser's bottom bar. */
+@media (max-width: 720px) {
+  .page-wrap { padding-bottom: calc(46px + env(safe-area-inset-bottom, 0px)); }
+  .live-footer { gap: 16px 12px; padding: 20px 2px calc(22px + env(safe-area-inset-bottom, 0px)); margin-top: 18px; }
+  .live-footer .footer-stat { flex: 1 1 calc(50% - 12px); min-width: calc(50% - 12px); }
+  .footer-highlight { border-left: 0; padding-left: 0; padding-top: 14px; border-top: 1px solid var(--line); flex-basis: 100%; min-width: 100%; }
+}

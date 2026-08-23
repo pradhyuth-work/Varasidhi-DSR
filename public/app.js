@@ -129,8 +129,13 @@
     try {
       const payload = await request('/api/profiles');
       state.profiles = Array.isArray(payload?.profiles) ? payload.profiles : [];
+      // On a fresh load, never land on a hidden buyer — fall through to the
+      // first visible one (and only then to whatever exists at all).
       const remembered = Number(localStorage.getItem('dsr-buyer-id'));
-      state.selectedBuyerId = state.profiles.some((profile) => Number(profile.id) === remembered) ? remembered : state.profiles[0]?.id ?? null;
+      const visible = state.profiles.filter((profile) => !profile.hidden);
+      state.selectedBuyerId = visible.some((profile) => Number(profile.id) === remembered)
+        ? remembered
+        : visible[0]?.id ?? state.profiles[0]?.id ?? null;
       render();
       if (state.selectedBuyerId !== null) await loadSession(state.selectedBuyerId);
       else { state.loading = false; render(); }
@@ -204,9 +209,15 @@
     $('admin-content').hidden = state.role !== 'Admin' || state.view !== 'admin';
     $('settlement-content').hidden = state.view !== 'settlement';
     $('profile-panel').hidden = state.view !== 'dsr';
-    $('buyer-select').disabled = state.loading || !state.profiles.length;
-    $('buyer-select').innerHTML = state.profiles.length
-      ? state.profiles.map((item) => `<option value="${escapeHtml(item.id)}" ${Number(item.id) === Number(state.selectedBuyerId) ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')
+    // Hidden buyers drop out of the day-to-day picker. One exception: if the
+    // buyer already loaded on screen was just hidden, keep them listed so the
+    // view doesn't silently switch to someone else mid-task.
+    const pickable = state.profiles.filter(
+      (item) => !item.hidden || Number(item.id) === Number(state.selectedBuyerId),
+    );
+    $('buyer-select').disabled = state.loading || !pickable.length;
+    $('buyer-select').innerHTML = pickable.length
+      ? pickable.map((item) => `<option value="${escapeHtml(item.id)}" ${Number(item.id) === Number(state.selectedBuyerId) ? 'selected' : ''}>${escapeHtml(item.name)}${item.hidden ? ' (hidden)' : ''}</option>`).join('')
       : '<option>No buyer profiles found</option>';
     $('today-date').textContent = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
     $('profile-title').textContent = profile?.name || 'Select a buyer';
@@ -250,13 +261,16 @@
         </tr>`).join('')
       : '<tr><td colspan="7">No products in the master yet.</td></tr>';
     $('profiles-body').innerHTML = state.profiles.length
-      ? state.profiles.map((profile) => `<tr>
-          <td><div class="product-cell"><span class="profile-mini">${escapeHtml(initials(profile.name))}</span><span>${escapeHtml(profile.name)}</span></div></td>
+      ? state.profiles.map((profile) => `<tr${profile.hidden ? ' class="profile-row-hidden"' : ''}>
+          <td><div class="product-cell"><span class="profile-mini">${escapeHtml(initials(profile.name))}</span><span>${escapeHtml(profile.name)}${profile.hidden ? '<span class="hidden-badge">HIDDEN</span>' : ''}</span></div></td>
           <td class="stock-quiet">#${escapeHtml(profile.id)}</td>
           <td class="price">${currency(profile.current_balance)}</td>
+          <td><input class="admin-text-input pname-input" data-profile-id="${escapeHtml(profile.id)}" type="text" maxlength="120" value="${escapeHtml(profile.name)}" aria-label="New name for ${escapeHtml(profile.name)}" /></td>
+          <td><button class="button button-quiet compact-button pname-save" type="button" data-profile-id="${escapeHtml(profile.id)}">Save name</button></td>
+          <td><button class="button button-quiet compact-button profile-hide" type="button" data-profile-id="${escapeHtml(profile.id)}" data-hidden="${profile.hidden ? 'true' : 'false'}">${profile.hidden ? 'Unhide' : 'Hide'}</button></td>
           <td><button class="delete-profile" type="button" data-delete-profile="${escapeHtml(profile.id)}">Delete</button></td>
         </tr>`).join('')
-      : '<tr><td colspan="4">No buyer profiles found.</td></tr>';
+      : '<tr><td colspan="7">No buyer profiles found.</td></tr>';
     $('purchase-product').innerHTML = state.products.length
       ? state.products.map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.name)} · ${integer(product.warehouse_stock)} in stock</option>`).join('')
       : '<option value="">Add a product first</option>';
@@ -1482,6 +1496,36 @@
     } catch (error) { adminMessage(error.message, true); }
   }
 
+  // Renaming only changes the label — every join is on profiles.id, so past
+  // reports keep their figures and simply show the new name.
+  async function saveProfileName(profileId) {
+    const input = document.querySelector(`.pname-input[data-profile-id="${CSS.escape(String(profileId))}"]`);
+    const name = String(input?.value || '').trim();
+    if (!name) return adminMessage('Enter a buyer name.', true);
+    if (name.length > 120) return adminMessage('Buyer name is too long (120 characters max).', true);
+    try {
+      const profile = await request(`/api/profiles/${encodeURIComponent(profileId)}/name`, adminOptions({ method: 'PATCH', body: JSON.stringify({ name }) }));
+      state.profiles = state.profiles.map((item) => Number(item.id) === Number(profile.id) ? profile : item);
+      renderAdmin();
+      render();
+      adminMessage('Buyer renamed. Past reports now show the new name.');
+      toast('Buyer renamed.');
+    } catch (error) { adminMessage(error.message, true); }
+  }
+
+  async function setProfileHidden(profileId, hidden) {
+    try {
+      const profile = await request(`/api/profiles/${encodeURIComponent(profileId)}/hidden`, adminOptions({ method: 'PATCH', body: JSON.stringify({ hidden }) }));
+      state.profiles = state.profiles.map((item) => Number(item.id) === Number(profile.id) ? profile : item);
+      renderAdmin();
+      render();
+      adminMessage(hidden
+        ? 'Buyer hidden. They stay in all reports and keep their ledger balance.'
+        : 'Buyer is visible in the buyer list again.');
+      toast(hidden ? 'Buyer hidden.' : 'Buyer unhidden.');
+    } catch (error) { adminMessage(error.message, true); }
+  }
+
   async function submitProfile(event) {
     event.preventDefault();
     const name = $('profile-name').value.trim();
@@ -1862,6 +1906,10 @@
       if (stockButton) openStockAdjust(stockButton.dataset.stockAdjust);
       const pidButton = event.target.closest('[data-product-id].pid-save');
       if (pidButton) changeProductId(pidButton.dataset.productId);
+      const nameButton = event.target.closest('[data-profile-id].pname-save');
+      if (nameButton) saveProfileName(nameButton.dataset.profileId);
+      const hideButton = event.target.closest('[data-profile-id].profile-hide');
+      if (hideButton) setProfileHidden(hideButton.dataset.profileId, hideButton.dataset.hidden !== 'true');
       const profileDeleteButton = event.target.closest('[data-delete-profile]');
       if (profileDeleteButton) deleteProfile(profileDeleteButton.dataset.deleteProfile);
       const productDeleteButton = event.target.closest('[data-delete-product]');

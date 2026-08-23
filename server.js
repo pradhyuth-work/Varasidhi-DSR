@@ -208,8 +208,11 @@ app.get("/api/me", (req, res) => res.json({ role: req.userRole }));
 
 app.get("/api/profiles", async (_req, res) => {
   try {
+    // `hidden` ships to every caller; the client decides where hidden buyers
+    // should still appear (reports, history) and where they should not (the
+    // day-to-day buyer picker).
     const profiles = await database.all(
-      "SELECT id, name, current_balance FROM profiles ORDER BY id",
+      "SELECT id, name, current_balance, hidden FROM profiles ORDER BY id",
     );
     res.json({ profiles });
   } catch (error) {
@@ -232,12 +235,71 @@ app.post("/api/profiles", async (req, res) => {
       [name, currentBalance],
     );
     res.status(201).json(await database.get(
-      "SELECT id, name, current_balance FROM profiles WHERE id = ?",
+      "SELECT id, name, current_balance, hidden FROM profiles WHERE id = ?",
       [created.id],
     ));
   } catch (error) {
     console.error("Failed to create profile", error);
     fail(res, 500, "Unable to create buyer profile.");
+  }
+});
+
+// Rename a buyer. The name is display-only — every join is on profiles.id — so
+// renaming rewrites history's label without disturbing any figures.
+app.patch("/api/profiles/:id/name", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can rename buyer profiles.");
+  const profileId = positiveInteger(req.params.id);
+  if (profileId === null || profileId < 1) return fail(res, 400, "Invalid profile id.");
+  const name = String(req.body?.name || "").trim();
+  if (!name || name.length > 120) return fail(res, 400, "A buyer name is required.");
+  try {
+    const result = await database.run(
+      "UPDATE profiles SET name = ? WHERE id = ?",
+      [name, profileId],
+    );
+    if (!result.changes) return fail(res, 404, "Buyer profile not found.");
+    res.json(await database.get(
+      "SELECT id, name, current_balance, hidden FROM profiles WHERE id = ?",
+      [profileId],
+    ));
+  } catch (error) {
+    console.error("Failed to rename profile", error);
+    fail(res, 500, "Unable to rename the buyer profile.");
+  }
+});
+
+// Hide / unhide a buyer. Nothing is deleted: the row, its sessions, and its
+// ledger balance all stay put, so historical reports are unaffected. An
+// in-progress route blocks hiding, otherwise the session would be stranded
+// out of reach of the buyer picker.
+app.patch("/api/profiles/:id/hidden", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can hide buyer profiles.");
+  const profileId = positiveInteger(req.params.id);
+  if (profileId === null || profileId < 1) return fail(res, 400, "Invalid profile id.");
+  if (typeof req.body?.hidden !== "boolean") {
+    return fail(res, 400, "hidden must be true or false.");
+  }
+  const hidden = req.body.hidden;
+  try {
+    const profile = await database.get("SELECT id FROM profiles WHERE id = ?", [profileId]);
+    if (!profile) return fail(res, 404, "Buyer profile not found.");
+    if (hidden) {
+      const open = await database.get(
+        "SELECT id FROM dsr_sessions WHERE buyer_id = ? AND status = 'IN_PROGRESS'",
+        [profileId],
+      );
+      if (open) {
+        return fail(res, 409, "Settle this buyer's open route before hiding them.");
+      }
+    }
+    await database.run("UPDATE profiles SET hidden = ? WHERE id = ?", [hidden, profileId]);
+    res.json(await database.get(
+      "SELECT id, name, current_balance, hidden FROM profiles WHERE id = ?",
+      [profileId],
+    ));
+  } catch (error) {
+    console.error("Failed to change profile visibility", error);
+    fail(res, 500, "Unable to update the buyer profile.");
   }
 });
 
