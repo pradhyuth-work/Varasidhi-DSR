@@ -897,9 +897,10 @@ app.post("/api/payments", async (req, res) => {
 });
 
 app.delete("/api/payments/:id", async (req, res) => {
-  if (String(req.header("x-user-role") || "").toUpperCase() !== "ADMIN") {
-    return fail(res, 403, "Only Admin can delete payments.");
-  }
+  // Gated on the verified session cookie. This previously trusted the
+  // client-supplied x-user-role header, which any signed-in user could set
+  // themselves to delete payment records.
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can delete payments.");
   const paymentId = positiveInteger(req.params.id);
   if (paymentId === null || paymentId < 1) return fail(res, 400, "Invalid payment id.");
   try {

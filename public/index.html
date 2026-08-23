@@ -658,7 +658,7 @@
         <div class="section-kicker"><span class="section-number">03</span><span>COLLECTION</span></div>
         <h2 id="payment-modal-title">Record a payment</h2><p class="modal-intro">Add the collection against <strong id="payment-buyer-name">this route</strong>.</p>
         <form id="payment-form">
-          <label class="form-field"><span>Payment method</span><select id="payment-method" required data-testid="select-payment-method"><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option><option value="MOBILE_MONEY">Mobile money</option><option value="CHEQUE">Cheque</option></select></label>
+          <label class="form-field"><span>Payment method</span><select id="payment-method" required data-testid="select-payment-method"><option value="CASH">Cash</option><option value="HDFC_SCANNER">HDFC scanner</option><option value="BANK_TRANSFER">Bank transfer</option><option value="MOBILE_MONEY">Mobile money</option><option value="CHEQUE">Cheque</option></select></label>
           <label class="form-field"><span>Reference / label <em>Optional</em></span><input id="payment-label" type="text" maxlength="80" placeholder="e.g. Till 04 · receipt 182" data-testid="input-payment-label" /></label>
             <label class="form-field"><span>Amount</span><div class="amount-input"><span>₹</span><input id="payment-amount" type="number" min="0.01" step="0.01" placeholder="0.00" required data-testid="input-payment-amount" /></div></label>
           <div class="modal-actions"><button class="button button-quiet" id="cancel-payment" type="button">Cancel</button><button class="button button-primary" type="submit" data-testid="button-submit-payment">Save payment</button></div>

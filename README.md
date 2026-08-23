@@ -148,7 +148,9 @@ adjusts `profiles.current_balance` via `PATCH /api/profiles/:id/balance`.
 - **Transactions** (load-in, close, settle, return-stock, purchase, product-id
   change) run through `withTransaction`, which holds one pooled client for the
   whole `BEGIN…COMMIT` — required for correctness on a pooled/serverless Postgres.
-- **Admin gate** is a password + an `x-user-role: ADMIN` header. The header is
-  client-spoofable; acceptable for a small internal tool but not real auth. Set a
-  strong `ADMIN_PASSWORD` and treat this as a follow-up if the app is exposed
-  publicly.
+- **Auth** is a signed, HTTP-only session cookie (`role.expiry.hmac`, verified
+  with `SESSION_SECRET`). Every `/api` route except health and login is gated on
+  it, and admin-only routes check the role carried by that verified cookie —
+  never the `x-user-role` request header, which a signed-in user could set
+  themselves. The frontend still sends that header on some calls; the server
+  ignores it entirely. Set a strong `SESSION_SECRET` and `ADMIN_PASSWORD`.
