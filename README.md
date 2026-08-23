@@ -80,7 +80,8 @@ JSON file (`dsr-backup-YYYY-MM-DD-HHMM.json`) via `GET /api/backup`.
 - **Admin only.** The route is gated on the session cookie's role; a `user`
   session gets a 403.
 - **Everything is included:** `profiles`, `products`, `dsr_sessions`,
-  `dsr_items`, `payments`, `purchases`, `stock_returns`, `stock_adjustments`.
+  `dsr_items`, `payments`, `purchases`, `stock_returns`, `stock_adjustments`,
+  `balance_adjustments`.
 - **Shape:** `{ format, version, generated_at, table_order, row_counts, tables }`.
   `table_order` lists tables parent-before-child, so replaying inserts in that
   order satisfies the foreign keys.
@@ -91,6 +92,21 @@ JSON file (`dsr-backup-YYYY-MM-DD-HHMM.json`) via `GET /api/backup`.
 There is no in-app restore. To reload a backup, insert the tables in
 `table_order` and then reset the identity sequences, e.g.
 `SELECT setval(pg_get_serial_sequence('profiles','id'), MAX(id)) FROM profiles;`
+
+## Ledger corrections
+
+Admin → **Profile / buyer manager** → **Correct** (next to a buyer's balance)
+adjusts `profiles.current_balance` via `PATCH /api/profiles/:id/balance`.
+
+- **A reason is mandatory** — unlike stock corrections, an unexplained change is
+  rejected with a 400. Every change is appended to `balance_adjustments`
+  (old, new, delta, mode, reason, timestamp) and shown in the admin UI.
+- **Two modes:** `set` writes an exact figure, `adjust` applies a ± delta.
+  Negative balances are allowed, since a buyer can be in credit.
+- **Refused while a route is open (409).** A session snapshots `prev_balance`
+  when created, and settling recomputes `current_balance` from that snapshot —
+  so a mid-route correction would be silently overwritten at settle. Settle
+  first, then correct.
 
 ## Notes
 

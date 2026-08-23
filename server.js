@@ -303,6 +303,83 @@ app.patch("/api/profiles/:id/hidden", async (req, res) => {
   }
 });
 
+// Correct a buyer's ledger balance. Mirrors the warehouse-stock correction:
+// "set" writes an exact figure, "adjust" applies a delta, and every change is
+// written to balance_adjustments. A reason is REQUIRED — this moves money, so
+// an unexplained correction is not accepted.
+//
+// Refused while the buyer has an IN_PROGRESS route. That session snapshotted
+// prev_balance when it was created, and settling recomputes current_balance
+// from that snapshot — so a correction made mid-route would be silently
+// overwritten at settle time. Settling first keeps the ledger auditable.
+app.patch("/api/profiles/:id/balance", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can correct ledger balances.");
+  const profileId = positiveInteger(req.params.id);
+  if (profileId === null || profileId < 1) return fail(res, 400, "Invalid profile id.");
+  const mode = req.body?.mode === "adjust" ? "adjust" : "set";
+  const reason = String(req.body?.reason || "").trim().slice(0, 200);
+  if (!reason) return fail(res, 400, "A reason is required for a ledger correction.");
+  const rawValue = roundMoney(req.body?.value);
+  if (!Number.isFinite(rawValue)) {
+    return fail(res, 400, "A valid amount is required.");
+  }
+  if (mode === "adjust" && rawValue === 0) {
+    return fail(res, 400, "Enter a non-zero amount to adjust by.");
+  }
+  try {
+    const open = await database.get(
+      "SELECT id FROM dsr_sessions WHERE buyer_id = ? AND status = 'IN_PROGRESS'",
+      [profileId],
+    );
+    if (open) {
+      return fail(res, 409, "Settle this buyer's open route before correcting their balance.");
+    }
+    const result = await withTransaction(async (tx) => {
+      const profile = await tx.get(
+        "SELECT id, current_balance FROM profiles WHERE id = ?",
+        [profileId],
+      );
+      if (!profile) return { notFound: true };
+      const oldBalance = roundMoney(profile.current_balance);
+      // Ledger balances are legitimately negative (buyer in credit), so unlike
+      // warehouse stock there is no floor to clamp against.
+      const newBalance = mode === "set" ? rawValue : roundMoney(oldBalance + rawValue);
+      await tx.run("UPDATE profiles SET current_balance = ? WHERE id = ?", [newBalance, profileId]);
+      await tx.run(
+        `INSERT INTO balance_adjustments
+           (profile_id, old_balance, new_balance, delta, mode, reason)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [profileId, oldBalance, newBalance, roundMoney(newBalance - oldBalance), mode, reason],
+      );
+      return { oldBalance, newBalance };
+    });
+    if (result.notFound) return fail(res, 404, "Buyer profile not found.");
+    res.json(await database.get(
+      "SELECT id, name, current_balance, hidden FROM profiles WHERE id = ?",
+      [profileId],
+    ));
+  } catch (error) {
+    console.error("Failed to correct ledger balance", error);
+    fail(res, 500, "Unable to correct the ledger balance.");
+  }
+});
+
+app.get("/api/balance-adjustments", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can view ledger correction history.");
+  try {
+    res.json({ adjustments: await database.all(
+      `SELECT b.id, b.profile_id, p.name AS profile_name, b.old_balance,
+              b.new_balance, b.delta, b.mode, b.reason, b.created_at
+         FROM balance_adjustments b
+         LEFT JOIN profiles p ON p.id = b.profile_id
+        ORDER BY b.created_at DESC, b.id DESC LIMIT 200`,
+    ) });
+  } catch (error) {
+    console.error("Failed to list balance adjustments", error);
+    fail(res, 500, "Unable to load ledger correction history.");
+  }
+});
+
 app.delete("/api/profiles/:id", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can delete buyer profiles.");
   const profileId = positiveInteger(req.params.id);
@@ -888,6 +965,7 @@ const BACKUP_TABLES = [
   "purchases",
   "stock_returns",
   "stock_adjustments",
+  "balance_adjustments",
 ];
 
 app.get("/api/backup", async (req, res) => {

@@ -692,3 +692,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   .live-footer .footer-stat { flex: 1 1 calc(50% - 12px); min-width: calc(50% - 12px); }
   .footer-highlight { border-left: 0; padding-left: 0; padding-top: 14px; border-top: 1px solid var(--line); flex-basis: 100%; min-width: 100%; }
 }
+
+/* ---- Ledger correction ---------------------------------------------------- */
+.balance-preview { margin: -4px 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--mint); color: var(--teal); font: 12px var(--mono); font-variant-numeric: tabular-nums; }
+.balance-preview b { color: var(--teal-deep); font-weight: 700; }

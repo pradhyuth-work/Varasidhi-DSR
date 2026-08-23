@@ -11,6 +11,8 @@
     purchases: [],
     adjustments: [],
     adjustmentsPage: 0,
+    balanceAdjustments: [],
+    balanceAdjustmentsPage: 0,
     role: 'Store Manager',
     view: 'dsr',
     adminTab: 'masters',
@@ -148,16 +150,19 @@
   async function loadAdminData() {
     if (state.role !== 'Admin') return;
     try {
-      const [productsPayload, purchasesPayload, adjustmentsPayload] = await Promise.all([
+      const [productsPayload, purchasesPayload, adjustmentsPayload, balanceAdjustmentsPayload] = await Promise.all([
         request('/api/products'),
         request('/api/purchases'),
         request('/api/stock-adjustments'),
+        request('/api/balance-adjustments'),
       ]);
       state.products = Array.isArray(productsPayload?.products) ? productsPayload.products : [];
       state.purchases = Array.isArray(purchasesPayload?.purchases) ? purchasesPayload.purchases : [];
       state.adjustments = Array.isArray(adjustmentsPayload?.adjustments) ? adjustmentsPayload.adjustments : [];
+      state.balanceAdjustments = Array.isArray(balanceAdjustmentsPayload?.adjustments) ? balanceAdjustmentsPayload.adjustments : [];
       state.purchasesPage = 0;
       state.adjustmentsPage = 0;
+      state.balanceAdjustmentsPage = 0;
       renderAdmin();
     } catch (error) {
       adminMessage(error.message, true);
@@ -264,7 +269,7 @@
       ? state.profiles.map((profile) => `<tr${profile.hidden ? ' class="profile-row-hidden"' : ''}>
           <td><div class="product-cell"><span class="profile-mini">${escapeHtml(initials(profile.name))}</span><span>${escapeHtml(profile.name)}${profile.hidden ? '<span class="hidden-badge">HIDDEN</span>' : ''}</span></div></td>
           <td class="stock-quiet">#${escapeHtml(profile.id)}</td>
-          <td class="price">${currency(profile.current_balance)}</td>
+          <td class="price"><div class="stock-cell" style="justify-content:flex-end"><span>${currency(profile.current_balance)}</span><button class="button button-quiet compact-button stock-adjust" type="button" data-balance-adjust="${escapeHtml(profile.id)}">Correct</button></div></td>
           <td><input class="admin-text-input pname-input" data-profile-id="${escapeHtml(profile.id)}" type="text" maxlength="120" value="${escapeHtml(profile.name)}" aria-label="New name for ${escapeHtml(profile.name)}" /></td>
           <td><button class="button button-quiet compact-button pname-save" type="button" data-profile-id="${escapeHtml(profile.id)}">Save name</button></td>
           <td><button class="button button-quiet compact-button profile-hide" type="button" data-profile-id="${escapeHtml(profile.id)}" data-hidden="${profile.hidden ? 'true' : 'false'}">${profile.hidden ? 'Unhide' : 'Hide'}</button></td>
@@ -324,6 +329,38 @@
              <button class="page-btn" data-page-target="adjustments" data-page-dir="-1" ${state.adjustmentsPage === 0 ? 'disabled' : ''}>← Prev</button>
              <span class="page-info">Page ${state.adjustmentsPage + 1} of ${adjTotalPages}</span>
              <button class="page-btn" data-page-target="adjustments" data-page-dir="1" ${state.adjustmentsPage >= adjTotalPages - 1 ? 'disabled' : ''}>Next →</button>
+           </div>`
+        : '';
+    }
+    if ($('balance-adjustments-body')) {
+      const BAL_PAGE_SIZE = 20;
+      const balTotalPages = Math.max(1, Math.ceil(state.balanceAdjustments.length / BAL_PAGE_SIZE));
+      state.balanceAdjustmentsPage = Math.min(state.balanceAdjustmentsPage, balTotalPages - 1);
+      const balStart = state.balanceAdjustmentsPage * BAL_PAGE_SIZE;
+      const balPage = state.balanceAdjustments.slice(balStart, balStart + BAL_PAGE_SIZE);
+      $('balance-adjustments-body').innerHTML = balPage.length
+        ? balPage.map((a) => {
+            const delta = Number(a.delta);
+            // A rising balance means the buyer owes more, so it reads as a debit
+            // (amber) rather than as a gain.
+            const deltaLabel = delta > 0 ? `+${currency(delta)}` : currency(delta);
+            const deltaClass = delta > 0 ? 'sold' : delta < 0 ? 'route-stock' : 'stock-quiet';
+            const typeLabel = a.mode === 'set' ? 'Set balance' : 'Adjust ±';
+            return `<tr>
+              <td class="stock-quiet">${dateLabel(a.created_at)} · ${timeLabel(a.created_at)}</td>
+              <td><div class="product-cell"><span>${escapeHtml(a.profile_name || `Buyer ${a.profile_id}`)}</span></div></td>
+              <td class="stock-quiet">${typeLabel}</td>
+              <td class="stock-quiet">${currency(a.old_balance)} → <b>${currency(a.new_balance)}</b></td>
+              <td class="${deltaClass}">${deltaLabel}</td>
+              <td class="stock-quiet">${escapeHtml(a.reason || '—')}</td>
+            </tr>`;
+          }).join('')
+        : '<tr><td colspan="6">No ledger corrections recorded yet.</td></tr>';
+      $('balance-adjustments-pagination').innerHTML = balTotalPages > 1
+        ? `<div class="pagination-controls">
+             <button class="page-btn" data-page-target="balance-adjustments" data-page-dir="-1" ${state.balanceAdjustmentsPage === 0 ? 'disabled' : ''}>← Prev</button>
+             <span class="page-info">Page ${state.balanceAdjustmentsPage + 1} of ${balTotalPages}</span>
+             <button class="page-btn" data-page-target="balance-adjustments" data-page-dir="1" ${state.balanceAdjustmentsPage >= balTotalPages - 1 ? 'disabled' : ''}>Next →</button>
            </div>`
         : '';
     }
@@ -1787,8 +1824,103 @@
     }
   }
 
+  // ---- Ledger balance correction ------------------------------------------
+  let balanceAdjustProfileId = null;
+  function currentBalanceMode() {
+    const el = document.querySelector('input[name="balance-mode"]:checked');
+    return el ? el.value : 'set';
+  }
+  function adjustingProfile() {
+    return state.profiles.find((p) => Number(p.id) === Number(balanceAdjustProfileId));
+  }
+  function updateBalanceModeUI() {
+    const mode = currentBalanceMode();
+    const input = $('balance-adjust-value');
+    const profile = adjustingProfile();
+    if (mode === 'set') {
+      $('balance-value-label').textContent = 'New ledger balance';
+      input.placeholder = '';
+      if (profile) input.value = Number(profile.current_balance).toFixed(2);
+    } else {
+      $('balance-value-label').textContent = 'Adjust by (use − to reduce what they owe)';
+      input.placeholder = 'e.g. -500.00';
+      input.value = '';
+    }
+    updateBalancePreview();
+  }
+  // Show the resulting balance before saving — a mistyped sign on a ledger is
+  // expensive, so the admin sees the outcome rather than inferring it.
+  function updateBalancePreview() {
+    const profile = adjustingProfile();
+    const target = $('balance-adjust-preview');
+    const raw = Number($('balance-adjust-value').value);
+    if (!profile || !Number.isFinite(raw) || $('balance-adjust-value').value === '') {
+      setHidden('balance-adjust-preview', true);
+      return;
+    }
+    const oldBalance = Number(profile.current_balance);
+    const next = currentBalanceMode() === 'set' ? raw : oldBalance + raw;
+    target.innerHTML = `${currency(oldBalance)} → <b>${currency(next)}</b>`;
+    setHidden('balance-adjust-preview', false);
+  }
+  function openBalanceAdjust(profileId) {
+    const profile = state.profiles.find((p) => Number(p.id) === Number(profileId));
+    if (!profile) return;
+    balanceAdjustProfileId = profile.id;
+    $('balance-adjust-buyer').textContent = profile.name;
+    $('balance-adjust-current').textContent = currency(profile.current_balance);
+    $('balance-adjust-form').reset();
+    document.querySelector('input[name="balance-mode"][value="set"]').checked = true;
+    $('balance-adjust-reason').value = '';
+    updateBalanceModeUI();
+    setHidden('balance-adjust-error', true);
+    setHidden('balance-adjust-modal', false);
+    window.setTimeout(() => $('balance-adjust-value').focus(), 40);
+  }
+  function closeBalanceAdjust() { setHidden('balance-adjust-modal', true); balanceAdjustProfileId = null; }
+  function showBalanceError(msg) {
+    const e = $('balance-adjust-error');
+    e.textContent = msg; setHidden('balance-adjust-error', false);
+  }
+  async function submitBalanceAdjust(event) {
+    event.preventDefault();
+    if (balanceAdjustProfileId == null) return;
+    const mode = currentBalanceMode();
+    const value = Number($('balance-adjust-value').value);
+    const reason = $('balance-adjust-reason').value.trim();
+    if (!Number.isFinite(value)) return showBalanceError('Enter a valid amount.');
+    if (mode === 'adjust' && value === 0) return showBalanceError('Enter a non-zero adjustment.');
+    if (!reason) return showBalanceError('A reason is required for a ledger correction.');
+    const btn = $('submit-balance-adjust');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    setHidden('balance-adjust-error', true);
+    try {
+      const updated = await request(`/api/profiles/${encodeURIComponent(balanceAdjustProfileId)}/balance`, adminOptions({
+        method: 'PATCH',
+        body: JSON.stringify({ mode, value, reason }),
+      }));
+      state.profiles = state.profiles.map((p) => Number(p.id) === Number(updated.id) ? updated : p);
+      closeBalanceAdjust();
+      // Reload so the profile row and the correction history both refresh.
+      await loadAdminData();
+      render();
+      adminMessage(`Ledger balance updated to ${currency(updated.current_balance)}.`);
+      toast('Ledger balance corrected.');
+    } catch (error) {
+      showBalanceError(error.message);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save correction';
+    }
+  }
+
   function bindEvents() {
     $('login-form').addEventListener('submit', submitLogin);
+    $('close-balance-adjust').addEventListener('click', closeBalanceAdjust);
+    $('cancel-balance-adjust').addEventListener('click', closeBalanceAdjust);
+    $('balance-adjust-modal').addEventListener('click', (event) => { if (event.target === $('balance-adjust-modal')) closeBalanceAdjust(); });
+    $('balance-adjust-form').addEventListener('submit', submitBalanceAdjust);
+    $('balance-adjust-value').addEventListener('input', updateBalancePreview);
+    document.querySelectorAll('input[name="balance-mode"]').forEach((r) => r.addEventListener('change', updateBalanceModeUI));
     $('logout-btn').addEventListener('click', doLogout);
     $('close-stock-adjust').addEventListener('click', closeStockAdjust);
     $('cancel-stock-adjust').addEventListener('click', closeStockAdjust);
@@ -1906,6 +2038,8 @@
       if (stockButton) openStockAdjust(stockButton.dataset.stockAdjust);
       const pidButton = event.target.closest('[data-product-id].pid-save');
       if (pidButton) changeProductId(pidButton.dataset.productId);
+      const balanceButton = event.target.closest('[data-balance-adjust]');
+      if (balanceButton) openBalanceAdjust(balanceButton.dataset.balanceAdjust);
       const nameButton = event.target.closest('[data-profile-id].pname-save');
       if (nameButton) saveProfileName(nameButton.dataset.profileId);
       const hideButton = event.target.closest('[data-profile-id].profile-hide');
@@ -1925,6 +2059,7 @@
         if (target === 'settlement') { state.settlementPage = Math.max(0, state.settlementPage + dir); renderSettlement(); }
         if (target === 'purchases')  { state.purchasesPage  = Math.max(0, state.purchasesPage  + dir); renderAdmin(); }
         if (target === 'adjustments'){ state.adjustmentsPage = Math.max(0, state.adjustmentsPage + dir); renderAdmin(); }
+        if (target === 'balance-adjustments'){ state.balanceAdjustmentsPage = Math.max(0, state.balanceAdjustmentsPage + dir); renderAdmin(); }
         if (target === 'inv-bills')  { state.invBillsPage   = Math.max(0, state.invBillsPage   + dir); renderInventoryReport(); }
         if (target === 'pr-days')    { state.paymentsReportPage = Math.max(0, state.paymentsReportPage + dir); renderPaymentsReport(); }
       }

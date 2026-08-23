@@ -335,6 +335,10 @@
               </div>
               <div class="admin-section-heading"><div><div class="section-kicker"><span class="section-number">02</span><span>BUYER PROFILES</span></div><h2>Active ledger accounts</h2></div></div>
               <div class="table-shell"><table class="route-table admin-table"><thead><tr><th>BUYER</th><th>PROFILE ID</th><th>CURRENT LEDGER BALANCE</th><th>RENAME</th><th></th><th>VISIBILITY</th><th></th></tr></thead><tbody id="profiles-body"></tbody></table></div>
+
+              <div class="admin-section-heading" style="margin-top:26px"><div><div class="section-kicker"><span class="section-number">03</span><span>LEDGER CORRECTIONS</span></div><h2>Manual balance adjustment history</h2><p>Every manual ledger correction, with the reason it was made.</p></div></div>
+              <div class="table-shell"><table class="route-table admin-table"><thead><tr><th>DATE</th><th>BUYER</th><th>TYPE</th><th>OLD → NEW</th><th>CHANGE</th><th>REASON</th></tr></thead><tbody id="balance-adjustments-body"></tbody></table></div>
+              <div id="balance-adjustments-pagination"></div>
             </section>
 
             <section class="admin-panel" data-admin-panel="purchases" hidden>
@@ -714,6 +718,34 @@
           <div class="modal-actions">
             <button class="button button-quiet" id="cancel-stock-adjust" type="button">Cancel</button>
             <button class="button button-primary" type="submit" id="submit-stock-adjust">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="modal-backdrop" id="balance-adjust-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="balance-adjust-title">
+        <button class="modal-close" id="close-balance-adjust" type="button" aria-label="Close">×</button>
+        <div class="section-kicker"><span class="section-number">₹</span><span>LEDGER CORRECTION</span></div>
+        <h2 id="balance-adjust-title">Correct ledger balance</h2>
+        <p class="modal-intro"><strong id="balance-adjust-buyer">Buyer</strong> · current balance <strong id="balance-adjust-current">₹0.00</strong></p>
+        <form id="balance-adjust-form" autocomplete="off">
+          <div class="stock-mode-toggle">
+            <label><input type="radio" name="balance-mode" value="set" checked /> <span>Set to exact balance</span></label>
+            <label><input type="radio" name="balance-mode" value="adjust" /> <span>Adjust by ±</span></label>
+          </div>
+          <label class="form-field">
+            <span id="balance-value-label">New ledger balance</span>
+            <div class="amount-input"><span>₹</span><input id="balance-adjust-value" type="number" step="0.01" required /></div>
+          </label>
+          <label class="form-field">
+            <span>Reason <em>Required</em></span>
+            <input id="balance-adjust-reason" type="text" maxlength="200" required placeholder="e.g. opening balance fix, cash short-paid, paper ledger reconciliation" />
+          </label>
+          <p id="balance-adjust-preview" class="balance-preview" hidden></p>
+          <p id="balance-adjust-error" class="admin-auth-error" hidden></p>
+          <div class="modal-actions">
+            <button class="button button-quiet" id="cancel-balance-adjust" type="button">Cancel</button>
+            <button class="button button-primary" type="submit" id="submit-balance-adjust">Save correction</button>
           </div>
         </form>
       </div>
