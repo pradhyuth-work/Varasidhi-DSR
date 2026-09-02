@@ -1418,7 +1418,7 @@
       });
       setHidden('return-stock-modal', true);
       // Reload session so closing stocks update to 0
-      const payload = await request(`/api/dsr/session?buyerId=${encodeURIComponent(state.selectedBuyerId)}`);
+      const payload = await request(`/api/dsr/active/${encodeURIComponent(state.selectedBuyerId)}`);
       hydratePayload(payload);
       render();
       toast(result.message || 'Stock returned to warehouse.');
@@ -1758,10 +1758,12 @@
     btn.textContent = 'Verifying…';
     setHidden('admin-auth-error', true);
     try {
-      await request('/api/admin/verify', { method: 'POST', body: JSON.stringify({ password }) });
-      // Password correct — grant Admin
-      state.role = 'Admin';
-      $('role-select').value = 'Admin';
+      // Re-authenticate against the real login endpoint so the signed session
+      // cookie's role actually becomes admin — the backend gates admin-only
+      // writes on that cookie, not on anything the client can set itself.
+      const res = await request('/api/login', { method: 'POST', body: JSON.stringify({ password }) });
+      if (res.role !== 'admin') throw new Error('Not an admin password.');
+      applyRole(res.role);
       setHidden('admin-auth-modal', true);
       renderPayments();
       render();
