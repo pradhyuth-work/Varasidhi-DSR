@@ -574,15 +574,54 @@ app.patch("/api/products/:id/rate", async (req, res) => {
     return fail(res, 400, "A valid product and positive unit price are required.");
   }
   try {
-    const result = await database.run(
-      "UPDATE products SET unit_price = ? WHERE id = ?",
-      [unitPrice, productId],
-    );
-    if (!result.changes) return fail(res, 404, "Product not found.");
-    res.json(await database.get(
-      "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ?",
-      [productId],
-    ));
+    const product = await withTransaction(async (tx) => {
+      const result = await tx.run(
+        "UPDATE products SET unit_price = ? WHERE id = ?",
+        [unitPrice, productId],
+      );
+      if (!result.changes) return null;
+
+      // Re-price this product on every route that hasn't settled yet — both
+      // ones still being loaded/sold (qty_sold 0, line_total follows once
+      // closed) and ones already closed for the day but awaiting settlement
+      // (qty_sold known now, so re-total immediately). Settled sessions are
+      // left untouched: their ledger and the buyer's current_balance are
+      // already finalised, and rewriting them would desync from payments
+      // already recorded against that total.
+      const openItems = await tx.all(
+        `SELECT di.id, di.dsr_id, di.qty_sold
+           FROM dsr_items di
+           JOIN dsr_sessions s ON s.id = di.dsr_id
+          WHERE di.product_id = ? AND s.status = 'IN_PROGRESS'`,
+        [productId],
+      );
+      const affectedSessionIds = new Set();
+      for (const item of openItems) {
+        const lineTotal = roundMoney((item.qty_sold || 0) * unitPrice);
+        await tx.run(
+          "UPDATE dsr_items SET unit_price = ?, line_total = ? WHERE id = ?",
+          [unitPrice, lineTotal, item.id],
+        );
+        affectedSessionIds.add(item.dsr_id);
+      }
+      for (const dsrId of affectedSessionIds) {
+        const totals = await tx.get(
+          "SELECT COALESCE(SUM(line_total), 0) AS total_sales FROM dsr_items WHERE dsr_id = ?",
+          [dsrId],
+        );
+        await tx.run(
+          "UPDATE dsr_sessions SET total_sales = ? WHERE id = ?",
+          [roundMoney(totals.total_sales), dsrId],
+        );
+      }
+
+      return tx.get(
+        "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ?",
+        [productId],
+      );
+    });
+    if (!product) return fail(res, 404, "Product not found.");
+    res.json(product);
   } catch (error) {
     console.error("Failed to update product rate", error);
     fail(res, 500, "Unable to update product rate.");
