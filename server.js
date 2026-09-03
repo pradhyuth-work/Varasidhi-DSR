@@ -1077,6 +1077,16 @@ app.post("/api/dsr/load-in", async (req, res) => {
 // difference and MAY end up negative, which is fine — it's an internal
 // component of the total, not a figure shown as a real "units loaded" count.
 // Unlike the normal load-in flow above, this does NOT touch warehouse_stock.
+//
+// If the new total falls below the closing stock already on record, closing
+// stock is brought down together with it — qty_sold (and therefore revenue)
+// is left untouched, only the "still on the truck" count shrinks. This is
+// what makes the common case work: a fresh item defaults closing_stock to
+// the full dispatched amount (nothing sold yet), so correcting an
+// over-counted dispatch just needs closing to follow it down, not block it.
+// The one case this refuses is a total that would require erasing units
+// already recorded as sold — that's a sales/revenue change, out of scope
+// for a stock-count correction.
 app.post("/api/dsr/load-in/correct", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can edit total dispatched stock directly.");
   const buyerId = positiveInteger(req.body?.buyerId);
@@ -1094,15 +1104,24 @@ app.post("/api/dsr/load-in/correct", async (req, res) => {
     );
     if (!session) return fail(res, 404, "No active route for this buyer.");
     const item = await database.get(
-      "SELECT id, opening_stock, closing_stock FROM dsr_items WHERE dsr_id = ? AND product_id = ?",
+      "SELECT id, opening_stock, closing_stock, qty_sold, unit_price FROM dsr_items WHERE dsr_id = ? AND product_id = ?",
       [session.id, productId],
     );
     if (!item) return fail(res, 404, "This route item could not be found.");
-    if (item.closing_stock > totalDispatched) {
-      return fail(res, 409, "Total dispatched cannot be less than the closing stock already recorded for this route.");
+    if (totalDispatched < item.qty_sold) {
+      return fail(res, 409, "Total dispatched cannot be less than the quantity already recorded as sold for this route.");
     }
     const loadedStock = totalDispatched - item.opening_stock;
-    await database.run("UPDATE dsr_items SET loaded_stock = ? WHERE id = ?", [loadedStock, item.id]);
+    if (totalDispatched < item.closing_stock) {
+      const closingStock = totalDispatched - item.qty_sold;
+      const lineTotal = roundMoney(item.qty_sold * item.unit_price);
+      await database.run(
+        "UPDATE dsr_items SET loaded_stock = ?, closing_stock = ?, line_total = ? WHERE id = ?",
+        [loadedStock, closingStock, lineTotal, item.id],
+      );
+    } else {
+      await database.run("UPDATE dsr_items SET loaded_stock = ? WHERE id = ?", [loadedStock, item.id]);
+    }
     res.json(await getSessionPayload(session.id));
   } catch (error) {
     console.error("Failed to correct total dispatched", error);

@@ -757,7 +757,7 @@
             <span>New total dispatched for this route</span>
             <input id="loaded-adjust-value" type="number" min="0" step="1" required />
           </label>
-          <p class="modal-intro">This only fixes the route's record. Warehouse stock is not changed.</p>
+          <p class="modal-intro">This only fixes the route's record. Warehouse stock is not changed. If the new total is lower than the closing stock already on record, closing stock is brought down with it — any units already recorded as sold stay unchanged.</p>
           <p id="loaded-adjust-error" class="admin-auth-error" hidden></p>
           <div class="modal-actions">
             <button class="button button-quiet" id="cancel-loaded-adjust" type="button">Cancel</button>
