@@ -740,6 +740,26 @@
         </form>
       </div>
     </div>
+    <div class="modal-backdrop" id="loaded-adjust-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="loaded-adjust-title">
+        <button class="modal-close" id="close-loaded-adjust" type="button" aria-label="Close">×</button>
+        <div class="section-kicker"><span class="section-number">🚚</span><span>LOAD-IN CORRECTION</span></div>
+        <h2 id="loaded-adjust-title">Correct loaded stock</h2>
+        <p class="modal-intro"><strong id="loaded-adjust-product">Product</strong> · previously loaded <strong id="loaded-adjust-current">0</strong></p>
+        <form id="loaded-adjust-form" autocomplete="off">
+          <label class="form-field">
+            <span>New loaded stock for this route</span>
+            <input id="loaded-adjust-value" type="number" min="0" step="1" required />
+          </label>
+          <p class="modal-intro">This only fixes the route's record. Warehouse stock is not changed.</p>
+          <p id="loaded-adjust-error" class="admin-auth-error" hidden></p>
+          <div class="modal-actions">
+            <button class="button button-quiet" id="cancel-loaded-adjust" type="button">Cancel</button>
+            <button class="button button-primary" type="submit" id="submit-loaded-adjust">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
     <div class="modal-backdrop" id="balance-adjust-modal" hidden>
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="balance-adjust-title">
         <button class="modal-close" id="close-balance-adjust" type="button" aria-label="Close">×</button>

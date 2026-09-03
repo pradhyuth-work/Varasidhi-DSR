@@ -1020,6 +1020,42 @@ app.post("/api/dsr/load-in", async (req, res) => {
   }
 });
 
+// Admin-only correction: directly set the "previously loaded" figure for one
+// product on a route, e.g. to fix a data-entry mistake. Unlike the normal
+// load-in flow above, this does NOT touch warehouse_stock — it only rewrites
+// dsr_items.loaded_stock for the active session.
+app.post("/api/dsr/load-in/correct", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can edit loaded stock directly.");
+  const buyerId = positiveInteger(req.body?.buyerId);
+  const productId = positiveInteger(req.body?.productId);
+  const loadedStock = positiveInteger(req.body?.loadedStock);
+  if (buyerId === null || productId === null || loadedStock === null) {
+    return fail(res, 400, "Buyer, product, and a whole-number loaded stock are required.");
+  }
+  try {
+    const session = await database.get(
+      `SELECT id FROM dsr_sessions
+        WHERE buyer_id = ? AND status = 'IN_PROGRESS'
+        ORDER BY id DESC LIMIT 1`,
+      [buyerId],
+    );
+    if (!session) return fail(res, 404, "No active route for this buyer.");
+    const item = await database.get(
+      "SELECT id, opening_stock, closing_stock FROM dsr_items WHERE dsr_id = ? AND product_id = ?",
+      [session.id, productId],
+    );
+    if (!item) return fail(res, 404, "This route item could not be found.");
+    if (item.closing_stock > item.opening_stock + loadedStock) {
+      return fail(res, 409, "Loaded stock cannot be less than the closing stock already recorded for this route.");
+    }
+    await database.run("UPDATE dsr_items SET loaded_stock = ? WHERE id = ?", [loadedStock, item.id]);
+    res.json(await getSessionPayload(session.id));
+  } catch (error) {
+    console.error("Failed to correct loaded stock", error);
+    fail(res, 500, "Unable to update loaded stock.");
+  }
+});
+
 app.post("/api/payments", async (req, res) => {
   const dsrId = positiveInteger(req.body?.dsrId);
   const method = String(req.body?.method || "").trim();

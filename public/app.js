@@ -1295,7 +1295,12 @@
     $('load-body').innerHTML = state.items.length ? state.items.map((item, index) => {
       const draft = Number(state.loadDrafts[item.product_id] || 0);
       const routeStock = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0) + draft;
-      return `<tr data-row-product="${escapeHtml(item.product_id)}"><td><div class="product-cell"><span class="product-index">${String(item.product_id).padStart(2, '0')}</span><span>${escapeHtml(item.product_name || `Product ${item.product_id}`)}</span></div></td><td class="stock-quiet">${integer(item.warehouse_stock)}</td><td>${integer(item.opening_stock)}</td><td>${integer(item.loaded_stock)}</td><td><input class="number-input load-input" data-product-id="${escapeHtml(item.product_id)}" type="number" min="0" step="1" value="${draft}" ${settled ? 'disabled' : ''} aria-label="Additional load for ${escapeHtml(item.product_name)}" data-testid="input-load-${escapeHtml(item.product_id)}" /></td><td class="route-stock">${integer(routeStock)}</td><td class="price">${currency(item.unit_price)}</td></tr>`;
+      // Admin can correct the "previously loaded" figure directly (e.g. fixing a data-entry
+      // mistake) without it re-triggering the warehouse debit that the normal load-in flow does.
+      const loadedCell = (state.role === 'Admin' && !settled)
+        ? `<div class="stock-cell"><span>${integer(item.loaded_stock)}</span><button class="button button-quiet compact-button loaded-adjust" type="button" data-loaded-adjust="${escapeHtml(item.product_id)}">Edit</button></div>`
+        : integer(item.loaded_stock);
+      return `<tr data-row-product="${escapeHtml(item.product_id)}"><td><div class="product-cell"><span class="product-index">${String(item.product_id).padStart(2, '0')}</span><span>${escapeHtml(item.product_name || `Product ${item.product_id}`)}</span></div></td><td class="stock-quiet">${integer(item.warehouse_stock)}</td><td>${integer(item.opening_stock)}</td><td class="stock-quiet">${loadedCell}</td><td><input class="number-input load-input" data-product-id="${escapeHtml(item.product_id)}" type="number" min="0" step="1" value="${draft}" ${settled ? 'disabled' : ''} aria-label="Additional load for ${escapeHtml(item.product_name)}" data-testid="input-load-${escapeHtml(item.product_id)}" /></td><td class="route-stock">${integer(routeStock)}</td><td class="price">${currency(item.unit_price)}</td></tr>`;
     }).join('') : '<tr><td colspan="7">No products are attached to this route.</td></tr>';
     $('closing-body').innerHTML = state.items.length ? state.items.map((item, index) => {
       const routeStock = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0) + Number(state.loadDrafts[item.product_id] || 0);
@@ -2350,6 +2355,56 @@
     }
   }
 
+  // ---- Loaded-stock correction (admin only, load-in page) ----------------
+  // Lets Admin fix a route's "previously loaded" figure directly — e.g. after
+  // a data-entry mistake — without it touching warehouse_stock, unlike the
+  // normal load-in flow which debits the warehouse for every additional load.
+  let loadedAdjustProductId = null;
+  function openLoadedAdjust(productId) {
+    const item = state.items.find((i) => Number(i.product_id) === Number(productId));
+    if (!item) return;
+    loadedAdjustProductId = item.product_id;
+    $('loaded-adjust-product').textContent = item.product_name || `Product ${item.product_id}`;
+    $('loaded-adjust-current').textContent = integer(item.loaded_stock);
+    $('loaded-adjust-form').reset();
+    $('loaded-adjust-value').value = item.loaded_stock;
+    setHidden('loaded-adjust-error', true);
+    setHidden('loaded-adjust-modal', false);
+    window.setTimeout(() => $('loaded-adjust-value').focus(), 40);
+  }
+  function closeLoadedAdjust() { setHidden('loaded-adjust-modal', true); loadedAdjustProductId = null; }
+  function showLoadedAdjustError(msg) {
+    const e = $('loaded-adjust-error');
+    e.textContent = msg; setHidden('loaded-adjust-error', false);
+  }
+  async function submitLoadedAdjust(event) {
+    event.preventDefault();
+    if (loadedAdjustProductId == null || !state.selectedBuyerId) return;
+    const value = Number($('loaded-adjust-value').value);
+    if (!Number.isInteger(value) || value < 0) return showLoadedAdjustError('Enter a whole number, 0 or more.');
+    const btn = $('submit-loaded-adjust');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    setHidden('loaded-adjust-error', true);
+    try {
+      const payload = await request('/api/dsr/load-in/correct', adminOptions({
+        method: 'POST',
+        body: JSON.stringify({
+          buyerId: Number(state.selectedBuyerId),
+          productId: Number(loadedAdjustProductId),
+          loadedStock: value,
+        }),
+      }));
+      closeLoadedAdjust();
+      hydratePayload(payload);
+      render();
+      toast('Loaded stock corrected. Warehouse counts were not changed.');
+    } catch (error) {
+      showLoadedAdjustError(error.message);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save';
+    }
+  }
+
   // ---- Ledger balance correction ------------------------------------------
   let balanceAdjustProfileId = null;
   function currentBalanceMode() {
@@ -2453,6 +2508,10 @@
     $('stock-adjust-modal').addEventListener('click', (event) => { if (event.target === $('stock-adjust-modal')) closeStockAdjust(); });
     $('stock-adjust-form').addEventListener('submit', submitStockAdjust);
     document.querySelectorAll('input[name="stock-mode"]').forEach((r) => r.addEventListener('change', updateStockModeUI));
+    $('close-loaded-adjust').addEventListener('click', closeLoadedAdjust);
+    $('cancel-loaded-adjust').addEventListener('click', closeLoadedAdjust);
+    $('loaded-adjust-modal').addEventListener('click', (event) => { if (event.target === $('loaded-adjust-modal')) closeLoadedAdjust(); });
+    $('loaded-adjust-form').addEventListener('submit', submitLoadedAdjust);
     $('buyer-select').addEventListener('change', (event) => loadSession(event.target.value));
     $('role-select').addEventListener('change', (event) => {
       const chosen = event.target.value;
@@ -2594,6 +2653,8 @@
       if (rateButton) saveRate(rateButton.dataset.productId);
       const stockButton = event.target.closest('[data-stock-adjust]');
       if (stockButton) openStockAdjust(stockButton.dataset.stockAdjust);
+      const loadedAdjustButton = event.target.closest('[data-loaded-adjust]');
+      if (loadedAdjustButton) openLoadedAdjust(loadedAdjustButton.dataset.loadedAdjust);
       const pidButton = event.target.closest('[data-product-id].pid-save');
       if (pidButton) changeProductId(pidButton.dataset.productId);
       const balanceButton = event.target.closest('[data-balance-adjust]');
