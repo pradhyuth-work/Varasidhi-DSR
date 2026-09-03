@@ -226,6 +226,8 @@
     $('view-dsr').classList.toggle('active', state.view === 'dsr');
     $('view-admin').classList.toggle('active', state.view === 'admin');
     $('view-settlement').classList.toggle('active', state.view === 'settlement');
+    $('nav-dashboard').classList.toggle('active', state.view === 'dsr');
+    $('nav-reports').classList.toggle('active', state.view === 'settlement');
     $('admin-content').hidden = state.role !== 'Admin' || state.view !== 'admin';
     $('settlement-content').hidden = state.view !== 'settlement';
     $('profile-panel').hidden = state.view !== 'dsr';
@@ -2466,14 +2468,18 @@
         toast('Switched to Store Manager.');
       }
     });
-    $('view-dsr').addEventListener('click', () => { state.view = 'dsr'; render(); });
-    $('view-settlement').addEventListener('click', () => {
+    const goToDsrView = () => { state.view = 'dsr'; render(); };
+    const goToSettlementView = () => {
       state.view = 'settlement';
       render();
       if (!$('settle-from').value) $('settle-from').value = firstOfMonth();
       if (!$('settle-to').value)   $('settle-to').value   = todayIso();
       if (!state.settlementData && !state.settlementLoading) loadSettlement();
-    });
+    };
+    $('view-dsr').addEventListener('click', goToDsrView);
+    $('view-settlement').addEventListener('click', goToSettlementView);
+    $('nav-dashboard').addEventListener('click', goToDsrView);
+    $('nav-reports').addEventListener('click', goToSettlementView);
     $('view-admin').addEventListener('click', () => {
       if (state.role !== 'Admin') return;
       state.view = 'admin';
@@ -2574,6 +2580,13 @@
         updateTotals();
       }
     });
+    // Number inputs change value on mouse-wheel scroll while focused; blur on scroll so
+    // scrolling the page over these fields doesn't silently edit load-in/closing quantities.
+    document.addEventListener('wheel', (event) => {
+      if (document.activeElement === event.target && event.target.matches('.load-input, .closing-input')) {
+        event.target.blur();
+      }
+    }, { passive: true });
     document.addEventListener('click', (event) => {
       const deleteButton = event.target.closest('[data-delete-payment]');
       if (deleteButton) deletePayment(deleteButton.dataset.deletePayment);
