@@ -1780,7 +1780,7 @@ app.get("/api/reports/settlement", async (req, res) => {
          FROM dsr_items di
          JOIN products p ON p.id = di.product_id
         WHERE di.dsr_id IN (${ph})
-        ORDER BY p.name`,
+        ORDER BY di.dsr_id, p.id`,
       sessionIds,
     );
 
