@@ -656,6 +656,54 @@ app.patch("/api/products/:id/product-id", async (req, res) => {
   }
 });
 
+// Updates a product's unit price and re-prices it on every route that hasn't
+// settled yet — both ones still being loaded/sold (qty_sold 0, line_total
+// follows once closed) and ones already closed for the day but awaiting
+// settlement (qty_sold known now, so re-total immediately). Settled sessions
+// are left untouched: their ledger and the buyer's current_balance are
+// already finalised, and rewriting them would desync from payments already
+// recorded against that total.
+//
+// Shared by every price-change entry point (the rate table's "Save rate",
+// and a CSV-driven inward bill that optionally carries a new price per line)
+// so this guarantee applies no matter which one was used. Returns false if
+// the product didn't exist (nothing to update).
+async function applyProductPriceUpdate(tx, productId, unitPrice) {
+  const result = await tx.run(
+    "UPDATE products SET unit_price = ? WHERE id = ?",
+    [unitPrice, productId],
+  );
+  if (!result.changes) return false;
+
+  const openItems = await tx.all(
+    `SELECT di.id, di.dsr_id, di.qty_sold
+       FROM dsr_items di
+       JOIN dsr_sessions s ON s.id = di.dsr_id
+      WHERE di.product_id = ? AND s.status = 'IN_PROGRESS'`,
+    [productId],
+  );
+  const affectedSessionIds = new Set();
+  for (const item of openItems) {
+    const lineTotal = roundMoney((item.qty_sold || 0) * unitPrice);
+    await tx.run(
+      "UPDATE dsr_items SET unit_price = ?, line_total = ? WHERE id = ?",
+      [unitPrice, lineTotal, item.id],
+    );
+    affectedSessionIds.add(item.dsr_id);
+  }
+  for (const dsrId of affectedSessionIds) {
+    const totals = await tx.get(
+      "SELECT COALESCE(SUM(line_total), 0) AS total_sales FROM dsr_items WHERE dsr_id = ?",
+      [dsrId],
+    );
+    await tx.run(
+      "UPDATE dsr_sessions SET total_sales = ? WHERE id = ?",
+      [roundMoney(totals.total_sales), dsrId],
+    );
+  }
+  return true;
+}
+
 app.patch("/api/products/:id/rate", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can update product rates.");
   const productId = positiveInteger(req.params.id);
@@ -665,46 +713,8 @@ app.patch("/api/products/:id/rate", async (req, res) => {
   }
   try {
     const product = await withTransaction(async (tx) => {
-      const result = await tx.run(
-        "UPDATE products SET unit_price = ? WHERE id = ?",
-        [unitPrice, productId],
-      );
-      if (!result.changes) return null;
-
-      // Re-price this product on every route that hasn't settled yet — both
-      // ones still being loaded/sold (qty_sold 0, line_total follows once
-      // closed) and ones already closed for the day but awaiting settlement
-      // (qty_sold known now, so re-total immediately). Settled sessions are
-      // left untouched: their ledger and the buyer's current_balance are
-      // already finalised, and rewriting them would desync from payments
-      // already recorded against that total.
-      const openItems = await tx.all(
-        `SELECT di.id, di.dsr_id, di.qty_sold
-           FROM dsr_items di
-           JOIN dsr_sessions s ON s.id = di.dsr_id
-          WHERE di.product_id = ? AND s.status = 'IN_PROGRESS'`,
-        [productId],
-      );
-      const affectedSessionIds = new Set();
-      for (const item of openItems) {
-        const lineTotal = roundMoney((item.qty_sold || 0) * unitPrice);
-        await tx.run(
-          "UPDATE dsr_items SET unit_price = ?, line_total = ? WHERE id = ?",
-          [unitPrice, lineTotal, item.id],
-        );
-        affectedSessionIds.add(item.dsr_id);
-      }
-      for (const dsrId of affectedSessionIds) {
-        const totals = await tx.get(
-          "SELECT COALESCE(SUM(line_total), 0) AS total_sales FROM dsr_items WHERE dsr_id = ?",
-          [dsrId],
-        );
-        await tx.run(
-          "UPDATE dsr_sessions SET total_sales = ? WHERE id = ?",
-          [roundMoney(totals.total_sales), dsrId],
-        );
-      }
-
+      const changed = await applyProductPriceUpdate(tx, productId, unitPrice);
+      if (!changed) return null;
       return tx.get(
         "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ?",
         [productId],
@@ -828,11 +838,17 @@ const MAX_PURCHASE_LINES = 50;
 
 // Record an incoming supplier bill. Accepts either a single product (the
 // original shape, kept so existing callers keep working) or a `lines` array of
-// { productId, qtyAdded } for a multi-product bill sharing one reference.
+// { productId, qtyAdded, unitPrice? } for a multi-product bill sharing one
+// reference. `unitPrice` is optional per line — omit it (or leave the CSV
+// cell blank) and that product's price is left exactly as it was; only lines
+// that carry a price get repriced, via the same applyProductPriceUpdate used
+// by the rate table's "Save rate", so an in-progress route picks up the new
+// price the same way it would from either entry point.
 //
-// The whole bill is applied in ONE transaction: either every line's stock lands
-// or none does. Posting a five-line bill as five separate requests could leave
-// stock half-applied if one failed partway.
+// The whole bill is applied in ONE transaction: either every line's stock (and
+// any price change riding along with it) lands, or none does. Posting a
+// five-line bill as five separate requests could leave stock half-applied if
+// one failed partway.
 //
 // One purchases row is written per line, in bill order, so the log mirrors the
 // paper bill. A product legitimately appearing on two lines stays two rows.
@@ -843,7 +859,7 @@ app.post("/api/inventory/purchase", async (req, res) => {
 
   const rawLines = Array.isArray(req.body?.lines)
     ? req.body.lines
-    : [{ productId: req.body?.productId, qtyAdded: req.body?.qtyAdded }];
+    : [{ productId: req.body?.productId, qtyAdded: req.body?.qtyAdded, unitPrice: req.body?.unitPrice }];
   if (rawLines.length === 0) return fail(res, 400, "Add at least one product to the bill.");
   if (rawLines.length > MAX_PURCHASE_LINES) {
     return fail(res, 400, `A bill can hold at most ${MAX_PURCHASE_LINES} lines.`);
@@ -858,7 +874,20 @@ app.post("/api/inventory/purchase", async (req, res) => {
         ? "A product and a positive whole-number quantity are required."
         : `Line ${index + 1}: choose a product and enter a positive whole-number quantity.`);
     }
-    lines.push({ productId, qtyAdded });
+    // Blank/absent stays null (no price change); anything actually supplied
+    // must be a valid positive amount, or the whole request is rejected —
+    // same as a bad quantity, rather than silently dropping a typo'd price.
+    let unitPrice = null;
+    const rawPrice = line?.unitPrice;
+    if (rawPrice !== undefined && rawPrice !== null && rawPrice !== "") {
+      unitPrice = positiveAmount(rawPrice);
+      if (unitPrice === null) {
+        return fail(res, 400, rawLines.length === 1
+          ? "Unit price must be a positive amount."
+          : `Line ${index + 1}: unit price must be a positive amount.`);
+      }
+    }
+    lines.push({ productId, qtyAdded, unitPrice });
   }
 
   try {
@@ -875,6 +904,9 @@ app.post("/api/inventory/purchase", async (req, res) => {
           "UPDATE products SET warehouse_stock = warehouse_stock + ? WHERE id = ?",
           [line.qtyAdded, line.productId],
         );
+        if (line.unitPrice !== null) {
+          await applyProductPriceUpdate(tx, line.productId, line.unitPrice);
+        }
         const created = await tx.run(
           "INSERT INTO purchases (product_id, qty_added, supplier_ref) VALUES (?, ?, ?)",
           [line.productId, line.qtyAdded, supplierRef],

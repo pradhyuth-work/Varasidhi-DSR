@@ -1778,8 +1778,8 @@
       `${csvField('Bill Reference')},${csvField('')}`,
       `${csvField('Date')},${csvField(todayIso())}`,
       '',
-      [csvField('Product ID'), csvField('Product Name'), csvField('Quantity')].join(','),
-      ...state.products.map((p) => [csvField(p.id), csvField(p.name), csvField('')].join(',')),
+      [csvField('Product ID'), csvField('Product Name'), csvField('Quantity'), csvField('Price')].join(','),
+      ...state.products.map((p) => [csvField(p.id), csvField(p.name), csvField(''), csvField('')].join(',')),
     ].join('\n');
     downloadCsvBlob(csv, `inventory-inward-template-${todayIso()}.csv`);
     toast('Template downloaded — fill in quantities and upload it back here.');
@@ -1838,6 +1838,10 @@
     if (header[0] !== 'product id' || header[1] !== 'product name' || header[2] !== 'quantity') {
       throw new Error('This doesn’t look like the inventory template — expected a "Product ID, Product Name, Quantity" header row. Download a fresh template and fill that in.');
     }
+    // The Price column is optional so an older downloaded template (from
+    // before this column existed) still uploads fine — those files simply
+    // never carry a price change.
+    const hasPriceColumn = header[3] === 'price';
     const dataRows = rows.slice(idx + 1);
     if (!dataRows.length) throw new Error('No product rows found in this file.');
 
@@ -1849,12 +1853,21 @@
       const rawId = (r[0] || '').trim();
       const rawName = (r[1] || '').trim();
       const rawQty = (r[2] || '').trim();
-      if (!rawId && !rawQty) continue;
+      const rawPrice = hasPriceColumn ? (r[3] || '').trim() : '';
+      if (!rawId && !rawQty && !rawPrice) continue;
       const productId = Number(rawId);
       if (!Number.isInteger(productId) || productId < 1) {
         throw new Error(`Row ${rowIdx + 1}: "${rawId}" is not a valid Product ID.`);
       }
-      if (rawQty === '') continue; // nothing on this bill for this product
+      if (rawQty === '') {
+        // Prices only update alongside a quantity on this bulk-purchase
+        // upload (Rate & product master's "Save rate" is the place for a
+        // price-only change) — flag it rather than silently dropping it.
+        if (rawPrice !== '') {
+          warnings.push(`Row ${rowIdx + 1} (Product ${productId}): a price was entered but Quantity is blank, so this line was skipped entirely — prices only update together with a quantity in this upload. Use Rate & product master to change a price with no stock movement.`);
+        }
+        continue; // nothing on this bill for this product
+      }
       const qty = Number(rawQty);
       if (!Number.isInteger(qty) || qty <= 0) {
         throw new Error(`Row ${rowIdx + 1} (Product ${productId}): Quantity must be a positive whole number — got "${rawQty}".`);
@@ -1866,7 +1879,15 @@
       if (rawName && product.name.trim().toLowerCase() !== rawName.toLowerCase()) {
         warnings.push(`Row ${rowIdx + 1}: Product ID ${productId} is now "${product.name}", but the file says "${rawName}" — it may have been renamed or renumbered since download. Double-check this is the right product.`);
       }
-      lines.push({ productId, qtyAdded: qty, productName: product.name });
+      let unitPrice = null;
+      if (rawPrice !== '') {
+        const price = Number(rawPrice);
+        if (!Number.isFinite(price) || price <= 0) {
+          throw new Error(`Row ${rowIdx + 1} (Product ${productId}): Price must be a positive amount — got "${rawPrice}".`);
+        }
+        unitPrice = roundMoney(price);
+      }
+      lines.push({ productId, qtyAdded: qty, productName: product.name, unitPrice });
       seenCount.set(productId, (seenCount.get(productId) || 0) + 1);
     }
     if (!lines.length) throw new Error('No quantities were entered — fill in the Quantity column for at least one product.');
@@ -1918,10 +1939,12 @@
 
   function renderCsvPreview(parsed) {
     const totalUnits = parsed.lines.reduce((sum, line) => sum + line.qtyAdded, 0);
+    const priceChanges = parsed.lines.filter((line) => line.unitPrice !== null).length;
     $('csv-preview-summary').textContent = `${parsed.lines.length} product line(s), ${integer(totalUnits)} unit(s) total`
+      + (priceChanges ? `, ${integer(priceChanges)} price change(s)` : '')
       + (parsed.supplierRef ? ` · ${parsed.supplierRef}` : '') + '.';
     $('csv-preview-body').innerHTML = parsed.lines.map((line) =>
-      `<tr><td>${escapeHtml(line.productName)}</td><td>${integer(line.qtyAdded)}</td></tr>`,
+      `<tr><td>${escapeHtml(line.productName)}</td><td>${integer(line.qtyAdded)}</td><td>${line.unitPrice !== null ? currency(line.unitPrice) : '—'}</td></tr>`,
     ).join('');
     const warnBox = $('csv-preview-warnings');
     warnBox.innerHTML = parsed.warnings.length
@@ -1959,16 +1982,17 @@
     btn.disabled = true;
     try {
       const payload = {
-        lines: csvInwardParsed.lines.map(({ productId, qtyAdded }) => ({ productId, qtyAdded })),
+        lines: csvInwardParsed.lines.map(({ productId, qtyAdded, unitPrice }) => ({ productId, qtyAdded, unitPrice })),
         supplierRef: csvInwardParsed.supplierRef,
       };
       const result = await request('/api/inventory/purchase', adminOptions({ method: 'POST', body: JSON.stringify(payload) }));
       closeCsvInwardModal();
       await loadAdminData();
       if (state.selectedBuyerId) await loadSession(state.selectedBuyerId);
+      const priceChanges = csvInwardParsed.lines.filter((line) => line.unitPrice !== null).length;
       adminMessage(result.lineCount === 1
         ? `Purchase posted. ${escapeHtml(result.purchases[0].product_name)} stock is now ${integer(result.purchases[0].warehouse_stock)}.`
-        : `Bill posted — ${result.lineCount} products, ${integer(result.totalQty)} units inwarded.`);
+        : `Bill posted — ${result.lineCount} products, ${integer(result.totalQty)} units inwarded${priceChanges ? `, ${integer(priceChanges)} price(s) updated` : ''}.`);
       toast('Inventory inwarded from CSV.');
     } catch (error) {
       showCsvSubmitError(error.message);

@@ -773,13 +773,13 @@
         <button class="modal-close" id="close-csv-inward" type="button" aria-label="Close">×</button>
         <div class="section-kicker"><span class="section-number">⇅</span><span>BULK INWARDING</span></div>
         <h2 id="csv-inward-title">Import a bill from CSV</h2>
-        <p class="modal-intro">Download the product template, fill in the bill reference, date and quantities in a spreadsheet, then upload the same file back here to post the whole bill at once.</p>
+        <p class="modal-intro">Download the product template, fill in the bill reference, date, quantities and — only for products whose price changed — a new price, then upload the same file back here to post the whole bill at once.</p>
 
         <div class="csv-bulk-step">
           <button class="button button-outline compact-button" type="button" id="csv-download-template">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV template
           </button>
-          <p class="field-hint">One row per product. Leave Quantity blank for anything not on this bill — only rows with a quantity are posted.</p>
+          <p class="field-hint">One row per product. Leave Quantity blank for anything not on this bill — only rows with a quantity are posted. Leave Price blank to keep the current price; it only updates for rows where you enter a new one.</p>
         </div>
 
         <label class="form-field">
@@ -794,7 +794,7 @@
           <div id="csv-preview-warnings"></div>
           <div class="table-shell csv-preview-table-shell">
             <table class="route-table admin-table">
-              <thead><tr><th>PRODUCT</th><th>QUANTITY</th></tr></thead>
+              <thead><tr><th>PRODUCT</th><th>QUANTITY</th><th>NEW PRICE</th></tr></thead>
               <tbody id="csv-preview-body"></tbody>
             </table>
           </div>
