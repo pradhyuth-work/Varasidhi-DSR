@@ -2007,6 +2007,170 @@
     }
   }
 
+  // ---- CSV bulk rate update -------------------------------------------------
+  // Narrow format: one row per product with its current rate for reference and
+  // a New Rate column the admin fills in only for products that changed. Posts
+  // to /api/products/bulk-rate, which never touches warehouse_stock.
+  const MAX_RATE_LINES = 50;
+
+  function downloadRateTemplateCsv() {
+    if (!state.products.length) return toast('Load the product list first.', 'error');
+    const csv = [
+      [csvField('Product ID'), csvField('Product Name'), csvField('Current Rate'), csvField('New Rate')].join(','),
+      ...state.products.map((p) => [csvField(p.id), csvField(p.name), csvField(p.unit_price), csvField('')].join(',')),
+    ].join('\n');
+    downloadCsvBlob(csv, `rate-update-template-${todayIso()}.csv`);
+    toast('Template downloaded — fill in new rates and upload it back here.');
+  }
+
+  // Validates an uploaded template against the CURRENT product list. Rows left
+  // blank in New Rate, or whose New Rate already matches the current rate, are
+  // skipped (not applied, not an error) — only rows that actually change
+  // something come back in `lines`.
+  function parseRateCsv(text) {
+    const rows = parseCsv(text);
+    if (!rows.length) throw new Error('No rows found in this file.');
+    const header = (rows[0] || []).map((c) => c.trim().toLowerCase());
+    if (header[0] !== 'product id' || header[1] !== 'product name' || header[2] !== 'current rate' || header[3] !== 'new rate') {
+      throw new Error('This doesn’t look like the rate template — expected a "Product ID, Product Name, Current Rate, New Rate" header row. Download a fresh template and fill that in.');
+    }
+    const dataRows = rows.slice(1);
+    if (!dataRows.length) throw new Error('No product rows found in this file.');
+
+    const byId = new Map(state.products.map((p) => [Number(p.id), p]));
+    const lines = [];
+    const warnings = [];
+    const seenCount = new Map();
+    let skippedUnchanged = 0;
+    for (const [rowIdx, r] of dataRows.entries()) {
+      const rawId = (r[0] || '').trim();
+      const rawName = (r[1] || '').trim();
+      const rawNewRate = (r[3] || '').trim();
+      if (!rawId && !rawNewRate) continue;
+      const productId = Number(rawId);
+      if (!Number.isInteger(productId) || productId < 1) {
+        throw new Error(`Row ${rowIdx + 1}: "${rawId}" is not a valid Product ID.`);
+      }
+      if (rawNewRate === '') continue; // nothing to change on this row
+      const product = byId.get(productId);
+      if (!product) {
+        throw new Error(`Row ${rowIdx + 1}: Product ID ${productId} was not found in the current product list. It may have been deleted or renumbered since this file was downloaded — download a fresh template and re-enter this line.`);
+      }
+      if (rawName && product.name.trim().toLowerCase() !== rawName.toLowerCase()) {
+        warnings.push(`Row ${rowIdx + 1}: Product ID ${productId} is now "${product.name}", but the file says "${rawName}" — it may have been renamed or renumbered since download. Double-check this is the right product.`);
+      }
+      const newRate = Number(rawNewRate);
+      if (!Number.isFinite(newRate) || newRate <= 0) {
+        throw new Error(`Row ${rowIdx + 1} (Product ${productId}): New Rate must be a positive amount — got "${rawNewRate}".`);
+      }
+      const rounded = roundMoney(newRate);
+      if (rounded === roundMoney(product.unit_price)) {
+        skippedUnchanged++;
+        continue;
+      }
+      lines.push({ productId, productName: product.name, oldPrice: Number(product.unit_price), newPrice: rounded });
+      seenCount.set(productId, (seenCount.get(productId) || 0) + 1);
+    }
+    if (!lines.length) {
+      throw new Error(skippedUnchanged
+        ? 'No rate changes to apply — every filled-in row already matches the current rate.'
+        : 'No new rates were entered — fill in the New Rate column for at least one product.');
+    }
+    if (lines.length > MAX_RATE_LINES) {
+      throw new Error(`A rate update can hold at most ${MAX_RATE_LINES} lines — this file has ${lines.length}. Split it across more than one upload.`);
+    }
+    for (const [pid, count] of seenCount) {
+      if (count > 1) warnings.push(`Product ID ${pid} appears on more than one row — the last one in the file wins.`);
+    }
+    if (skippedUnchanged) {
+      warnings.push(`${skippedUnchanged} row(s) already matched the current rate and were left unchanged.`);
+    }
+    return { lines, warnings };
+  }
+
+  let csvRateParsed = null;
+
+  function resetCsvRateModal() {
+    csvRateParsed = null;
+    if ($('csv-rate-upload-input')) $('csv-rate-upload-input').value = '';
+    setHidden('csv-rate-parse-error', true);
+    setHidden('csv-rate-preview', true);
+    $('csv-rate-preview-body').innerHTML = '';
+    $('csv-rate-preview-warnings').innerHTML = '';
+    $('confirm-csv-rate').disabled = true;
+  }
+
+  function openCsvRateModal() {
+    resetCsvRateModal();
+    setHidden('csv-rate-modal', false);
+  }
+
+  function closeCsvRateModal() {
+    setHidden('csv-rate-modal', true);
+    resetCsvRateModal();
+  }
+
+  function showCsvRateParseError(message) {
+    $('csv-rate-parse-error').textContent = message;
+    setHidden('csv-rate-parse-error', false);
+    setHidden('csv-rate-preview', true);
+    $('confirm-csv-rate').disabled = true;
+    csvRateParsed = null;
+  }
+
+  function showCsvRateSubmitError(message) {
+    $('csv-rate-parse-error').textContent = message;
+    setHidden('csv-rate-parse-error', false);
+  }
+
+  function renderCsvRatePreview(parsed) {
+    $('csv-rate-preview-summary').textContent = `${parsed.lines.length} rate change(s).`;
+    $('csv-rate-preview-body').innerHTML = parsed.lines.map((line) =>
+      `<tr><td>${escapeHtml(line.productName)}</td><td>${currency(line.oldPrice)}</td><td>${currency(line.newPrice)}</td></tr>`,
+    ).join('');
+    const warnBox = $('csv-rate-preview-warnings');
+    warnBox.innerHTML = parsed.warnings.length
+      ? `<div class="csv-warning-box"><b>Check before applying:</b><ul>${parsed.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul></div>`
+      : '';
+    setHidden('csv-rate-preview', false);
+    setHidden('csv-rate-parse-error', true);
+    $('confirm-csv-rate').disabled = false;
+  }
+
+  function handleCsvRateFileSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        csvRateParsed = parseRateCsv(String(reader.result || ''));
+        renderCsvRatePreview(csvRateParsed);
+      } catch (error) {
+        showCsvRateParseError(error.message);
+      }
+    };
+    reader.onerror = () => showCsvRateParseError('Could not read this file. Re-save it as CSV and try again.');
+    reader.readAsText(file);
+  }
+
+  async function confirmCsvRate() {
+    if (!csvRateParsed || !csvRateParsed.lines.length) return;
+    const btn = $('confirm-csv-rate');
+    btn.disabled = true;
+    try {
+      const payload = { lines: csvRateParsed.lines.map(({ productId, newPrice }) => ({ productId, unitPrice: newPrice })) };
+      const result = await request('/api/products/bulk-rate', adminOptions({ method: 'POST', body: JSON.stringify(payload) }));
+      closeCsvRateModal();
+      await loadAdminData();
+      if (state.selectedBuyerId) await loadSession(state.selectedBuyerId);
+      adminMessage(`${integer(result.updatedCount)} product rate(s) updated.`);
+      toast('Rates updated from CSV.');
+    } catch (error) {
+      showCsvRateSubmitError(error.message);
+      btn.disabled = false;
+    }
+  }
+
   // ---- CSV bulk buyer onboarding -------------------------------------------
   // Wide format: one row per buyer, one column per product (opening balance
   // and product quantities become that buyer's day-zero stock on hand). Posts
@@ -2580,6 +2744,13 @@
     $('csv-download-template').addEventListener('click', downloadInwardTemplateCsv);
     $('csv-upload-input').addEventListener('change', handleCsvFileSelected);
     $('confirm-csv-inward').addEventListener('click', confirmCsvInward);
+    $('open-csv-rate').addEventListener('click', openCsvRateModal);
+    $('close-csv-rate').addEventListener('click', closeCsvRateModal);
+    $('cancel-csv-rate').addEventListener('click', closeCsvRateModal);
+    $('csv-rate-modal').addEventListener('click', (event) => { if (event.target === $('csv-rate-modal')) closeCsvRateModal(); });
+    $('csv-rate-download-template').addEventListener('click', downloadRateTemplateCsv);
+    $('csv-rate-upload-input').addEventListener('change', handleCsvRateFileSelected);
+    $('confirm-csv-rate').addEventListener('click', confirmCsvRate);
     $('open-bulk-profile').addEventListener('click', openBulkProfileModal);
     $('close-bulk-profile').addEventListener('click', closeBulkProfileModal);
     $('cancel-bulk-profile').addEventListener('click', closeBulkProfileModal);

@@ -728,6 +728,54 @@ app.patch("/api/products/:id/rate", async (req, res) => {
   }
 });
 
+const MAX_RATE_LINES = 50;
+
+// Bulk rate update (CSV upload from Rate & product master). Applies each
+// {productId, unitPrice} line in one transaction, reusing the same
+// re-price-open-routes logic as the single-product PATCH above.
+app.post("/api/products/bulk-rate", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can update product rates.");
+  const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+  if (rawLines.length === 0) return fail(res, 400, "At least one rate line is required.");
+  if (rawLines.length > MAX_RATE_LINES) {
+    return fail(res, 400, `A rate update can hold at most ${MAX_RATE_LINES} lines.`);
+  }
+  const lines = [];
+  for (const [index, line] of rawLines.entries()) {
+    const productId = positiveInteger(line?.productId);
+    const unitPrice = positiveAmount(line?.unitPrice);
+    if (productId === null || productId < 1 || unitPrice === null) {
+      return fail(res, 400, rawLines.length === 1
+        ? "A valid product and positive unit price are required."
+        : `Line ${index + 1}: choose a product and enter a positive unit price.`);
+    }
+    lines.push({ productId, unitPrice });
+  }
+  try {
+    const updatedIds = await withTransaction(async (tx) => {
+      const ids = [];
+      for (const [index, line] of lines.entries()) {
+        const changed = await applyProductPriceUpdate(tx, line.productId, line.unitPrice);
+        if (!changed) {
+          throw new Error(lines.length === 1
+            ? "Product not found."
+            : `Line ${index + 1}: product not found.`);
+        }
+        ids.push(line.productId);
+      }
+      return ids;
+    });
+    const products = await database.all(
+      "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ANY(?::int[]) ORDER BY id",
+      [updatedIds],
+    );
+    res.json({ updatedCount: updatedIds.length, products });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to update product rates.";
+    fail(res, /not found/i.test(message) ? 404 : 400, message);
+  }
+});
+
 // Manual warehouse-stock correction for a discrepancy. mode "set" writes an
 // absolute count; mode "adjust" applies a signed delta. Every change is logged
 // to stock_adjustments with a reason.
