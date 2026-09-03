@@ -627,6 +627,25 @@
     URL.revokeObjectURL(url);
   }
 
+  // Renders a DOM node to a PNG so reports can be shared as an image (e.g. on
+  // WhatsApp) instead of opened as a spreadsheet.
+  async function downloadElementSnapshot(el, filename) {
+    if (!el) return;
+    if (typeof html2canvas !== 'function') {
+      toast('Snapshot tool failed to load. Check your connection and try again.', 'error');
+      return;
+    }
+    try {
+      const canvas = await html2canvas(el, { backgroundColor: '#fbfbf8', scale: 2 });
+      const link = document.createElement('a');
+      link.href = canvas.toDataURL('image/png');
+      link.download = filename;
+      link.click();
+    } catch {
+      toast('Could not capture the snapshot. Please try again.', 'error');
+    }
+  }
+
   // Full database backup. The server returns the whole dump as one JSON body;
   // we keep the text so the row counts can be shown back to the operator as
   // confirmation of what actually landed in the file.
@@ -932,6 +951,7 @@
       setHidden('settle-empty', true);
       setHidden('settle-main', true);
       $('settle-download-csv').disabled = true;
+      $('settle-download-snapshot').disabled = true;
       return;
     }
     const { sessions } = data;
@@ -939,11 +959,13 @@
       setHidden('settle-empty', false);
       setHidden('settle-main', true);
       $('settle-download-csv').disabled = true;
+      $('settle-download-snapshot').disabled = true;
       return;
     }
     setHidden('settle-empty', true);
     setHidden('settle-main', false);
     $('settle-download-csv').disabled = false;
+    $('settle-download-snapshot').disabled = false;
 
     const PAGE_SIZE = 5;
     const totalPages = Math.max(1, Math.ceil(sessions.length / PAGE_SIZE));
@@ -1103,6 +1125,17 @@
     downloadCsvBlob(rows.join('\n'), `settlement-${session.buyer_name.replace(/\s+/g, '-')}-${session.date}.csv`);
     toast('Settlement report downloaded.');
   }
+
+  async function downloadSettlementSnapshot() {
+    if (!state.settlementData?.sessions?.length) return;
+    const session = state.settlementData.sessions[state.selectedSettlementIdx];
+    if (!session) return;
+    await downloadElementSnapshot(
+      $('settle-detail-panel'),
+      `settlement-${session.buyer_name.replace(/\s+/g, '-')}-${session.date}.png`,
+    );
+    toast('Settlement snapshot downloaded.');
+  }
   // ── End Settlement Report ──────────────────────────────────────────────
 
   function renderPerformance() {
@@ -1116,6 +1149,7 @@
     setHidden('perf-summary', loading || !hasData);
     setHidden('perf-table-section', loading || !hasData);
     $('perf-download-csv').disabled = !hasData;
+    $('perf-download-snapshot').disabled = !hasData;
 
     // Populate profile dropdown (preserve selection)
     const sel = $('perf-profile-select');
@@ -1246,6 +1280,19 @@
     }
     downloadCsvBlob(csvRows.join('\n'), `performance-${filters.from}-to-${filters.to}.csv`);
     toast('Performance report downloaded.');
+  }
+
+  async function downloadPerformanceSnapshot() {
+    if (!state.performanceData || state.performanceData.summary.session_count === 0) return;
+    const { filters } = state.performanceData;
+    const profileName = filters.profileId !== null
+      ? (state.profiles?.find((p) => String(p.id) === String(filters.profileId))?.name ?? `profile-${filters.profileId}`)
+      : 'all-profiles';
+    await downloadElementSnapshot(
+      $('perf-snapshot-area'),
+      `performance-${profileName.replace(/\s+/g, '-')}-${filters.from}-to-${filters.to}.png`,
+    );
+    toast('Performance snapshot downloaded.');
   }
 
   async function loadReport() {
@@ -2777,12 +2824,14 @@
     $('perf-profile-select').addEventListener('change', () => { state.performanceData = null; loadPerformance(); });
     $('apply-perf-filters').addEventListener('click', () => { state.performanceData = null; loadPerformance(); });
     $('perf-download-csv').addEventListener('click', downloadPerformanceCsv);
+    $('perf-download-snapshot').addEventListener('click', downloadPerformanceSnapshot);
     $('settle-profile-select').addEventListener('change', () => { state.settlementData = null; state.selectedSettlementIdx = 0; loadSettlement(); });
     $('apply-settle-filters').addEventListener('click', () => { state.settlementData = null; state.selectedSettlementIdx = 0; loadSettlement(); });
     $('apply-pr-filters').addEventListener('click', loadPaymentsReport);
     $('pr-download-csv').addEventListener('click', downloadPaymentsReportCsv);
     $('download-backup').addEventListener('click', downloadBackup);
     $('settle-download-csv').addEventListener('click', downloadSettlementCsv);
+    $('settle-download-snapshot').addEventListener('click', downloadSettlementSnapshot);
     $('return-stock-btn').addEventListener('click', openReturnStockModal);
     $('close-return-stock').addEventListener('click', () => setHidden('return-stock-modal', true));
     $('cancel-return-stock').addEventListener('click', () => setHidden('return-stock-modal', true));

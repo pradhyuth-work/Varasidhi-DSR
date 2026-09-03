@@ -238,45 +238,50 @@
                   <button class="button button-quiet report-apply-btn" type="button" id="perf-download-csv" disabled>
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
                   </button>
+                  <button class="button button-quiet report-apply-btn" type="button" id="perf-download-snapshot" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M4 16v2a2 2 0 0 0 2 2h2M20 8V6a2 2 0 0 0-2-2h-2M20 16v2a2 2 0 0 1-2 2h-2"/><circle cx="12" cy="12" r="3"/></svg>Download snapshot
+                  </button>
                 </div>
               </div>
 
               <p id="perf-loading" class="report-status-msg" hidden>Loading performance data…</p>
               <p id="perf-empty"   class="report-status-msg" hidden>No settled sessions found for this selection.</p>
 
-              <div id="perf-summary" class="report-summary-strip" hidden>
-                <div class="report-stat"><span>SETTLED SESSIONS</span><strong id="perf-stat-sessions">—</strong></div>
-                <div class="report-stat"><span>TOTAL QTY SOLD</span><strong id="perf-stat-qty">—</strong></div>
-                <div class="report-stat report-stat-payments"><span>TOTAL REVENUE</span><strong id="perf-stat-revenue">—</strong></div>
-              </div>
-
-              <div id="perf-table-section" hidden>
-                <div class="admin-section-heading report-buyer-heading" id="perf-table-heading">
-                  <div>
-                    <div class="section-kicker"><span class="section-number">01</span><span>BREAKDOWN</span></div>
-                    <h2 id="perf-table-title">Profile performance</h2>
-                  </div>
+              <div id="perf-snapshot-area">
+                <div id="perf-summary" class="report-summary-strip" hidden>
+                  <div class="report-stat"><span>SETTLED SESSIONS</span><strong id="perf-stat-sessions">—</strong></div>
+                  <div class="report-stat"><span>TOTAL QTY SOLD</span><strong id="perf-stat-qty">—</strong></div>
+                  <div class="report-stat report-stat-payments"><span>TOTAL REVENUE</span><strong id="perf-stat-revenue">—</strong></div>
                 </div>
 
-                <!-- All-profiles view -->
-                <div id="perf-profiles-view">
-                  <div class="table-shell">
-                    <table class="route-table admin-table">
-                      <thead><tr><th>BUYER</th><th>SESSIONS</th><th>TOTAL QTY SOLD</th><th>REVENUE</th><th>QTY SHARE</th></tr></thead>
-                      <tbody id="perf-profiles-body"></tbody>
-                    </table>
+                <div id="perf-table-section" hidden>
+                  <div class="admin-section-heading report-buyer-heading" id="perf-table-heading">
+                    <div>
+                      <div class="section-kicker"><span class="section-number">01</span><span>BREAKDOWN</span></div>
+                      <h2 id="perf-table-title">Profile performance</h2>
+                    </div>
                   </div>
-                  <!-- Per-profile product accordion rows injected here -->
-                  <div id="perf-profiles-products"></div>
-                </div>
 
-                <!-- Single-profile view -->
-                <div id="perf-single-view" hidden>
-                  <div class="table-shell">
-                    <table class="route-table admin-table">
-                      <thead><tr><th>PRODUCT</th><th>SESSIONS</th><th>QTY SOLD</th><th>REVENUE</th><th>QTY SHARE</th></tr></thead>
-                      <tbody id="perf-single-body"></tbody>
-                    </table>
+                  <!-- All-profiles view -->
+                  <div id="perf-profiles-view">
+                    <div class="table-shell">
+                      <table class="route-table admin-table">
+                        <thead><tr><th>BUYER</th><th>SESSIONS</th><th>TOTAL QTY SOLD</th><th>REVENUE</th><th>QTY SHARE</th></tr></thead>
+                        <tbody id="perf-profiles-body"></tbody>
+                      </table>
+                    </div>
+                    <!-- Per-profile product accordion rows injected here -->
+                    <div id="perf-profiles-products"></div>
+                  </div>
+
+                  <!-- Single-profile view -->
+                  <div id="perf-single-view" hidden>
+                    <div class="table-shell">
+                      <table class="route-table admin-table">
+                        <thead><tr><th>PRODUCT</th><th>SESSIONS</th><th>QTY SOLD</th><th>REVENUE</th><th>QTY SHARE</th></tr></thead>
+                        <tbody id="perf-single-body"></tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -623,6 +628,9 @@
                 <button class="button button-quiet report-apply-btn" type="button" id="settle-download-csv" disabled>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
                 </button>
+                <button class="button button-quiet report-apply-btn" type="button" id="settle-download-snapshot" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M4 16v2a2 2 0 0 0 2 2h2M20 8V6a2 2 0 0 0-2-2h-2M20 16v2a2 2 0 0 1-2 2h-2"/><circle cx="12" cy="12" r="3"/></svg>Download snapshot
+                </button>
               </div>
             </div>
 
@@ -635,7 +643,7 @@
                 <div class="settle-session-list" id="settle-session-list"></div>
 
                 <!-- Pivot detail -->
-                <div class="settle-detail-panel">
+                <div class="settle-detail-panel" id="settle-detail-panel">
                   <div class="admin-section-heading">
                     <div>
                       <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT BREAKDOWN</span></div>
@@ -910,6 +918,7 @@
     </div>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
     <div id="busy-overlay" class="busy-overlay" hidden aria-hidden="true"><div class="busy-spinner"></div></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>
