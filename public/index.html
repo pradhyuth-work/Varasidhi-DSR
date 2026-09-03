@@ -159,9 +159,6 @@
             <section id="dispatch-section" class="section-block" aria-labelledby="dispatch-heading">
               <div class="section-heading">
                 <div><div class="section-kicker"><span class="section-number">01</span><span>DISPATCH</span></div><h2 id="dispatch-heading">Load-in workflow</h2><p>Record the stock leaving the warehouse with the buyer.</p></div>
-                <button class="button button-primary" id="save-load" type="button" data-testid="button-save-load">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Save load-in
-                </button>
               </div>
               <div class="table-shell">
                 <table class="route-table" id="load-table">
@@ -170,14 +167,16 @@
                 </table>
               </div>
               <p class="table-footnote"><span class="info-mark">i</span> Additional load is added to the existing opening stock. Only positive quantities can be dispatched.</p>
+              <div class="dsr-save-bar">
+                <button class="button button-primary" id="save-load" type="button" data-testid="button-save-load">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Save load-in
+                </button>
+              </div>
             </section>
 
             <section id="closing-section" class="section-block" aria-labelledby="closing-heading">
               <div class="section-heading">
                 <div><div class="section-kicker"><span class="section-number">02</span><span>CLOSING</span></div><h2 id="closing-heading">Closing stock</h2><p>Enter the physical count returned by the buyer to calculate sales.</p></div>
-                <button class="button button-primary" id="save-closing" type="button" data-testid="button-save-closing">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save closing
-                </button>
               </div>
               <div class="table-shell">
                 <table class="route-table closing-table" id="closing-table">
@@ -186,6 +185,11 @@
                 </table>
               </div>
               <div class="settlement-note"><span class="info-mark">i</span><span>Sales are calculated as route stock less closing stock. Save closing before collecting payments.</span><strong id="settlement-total">—</strong></div>
+              <div class="dsr-save-bar">
+                <button class="button button-primary" id="save-closing" type="button" data-testid="button-save-closing">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save closing
+                </button>
+              </div>
             </section>
 
             <section id="payments-section" class="payments-section section-block" aria-labelledby="payments-heading">
@@ -347,6 +351,12 @@
                   <div class="section-kicker"><span class="section-number">01</span><span>INWARDING</span></div>
                   <h2>Record inventory purchase</h2>
                   <p class="card-copy">Post an incoming bill and increase warehouse stock immediately.</p>
+                  <div class="csv-bulk-trigger">
+                    <button class="button button-outline compact-button" type="button" id="open-csv-inward">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17V3m0 0 4 4m-4-4-4 4M4 17v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>Bulk upload from CSV
+                    </button>
+                    <span class="field-hint">Filling in many lines? Do it in a spreadsheet instead of one at a time below.</span>
+                  </div>
                   <span class="form-field-label">Products on this bill</span>
                   <div id="purchase-lines" class="purchase-lines"></div>
                   <button class="button button-quiet compact-button purchase-add-line" type="button" id="add-purchase-line">+ Add another product</button>
@@ -752,7 +762,46 @@
         </form>
       </div>
     </div>
+    <div class="modal-backdrop" id="csv-inward-modal" hidden>
+      <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="csv-inward-title">
+        <button class="modal-close" id="close-csv-inward" type="button" aria-label="Close">×</button>
+        <div class="section-kicker"><span class="section-number">⇅</span><span>BULK INWARDING</span></div>
+        <h2 id="csv-inward-title">Import a bill from CSV</h2>
+        <p class="modal-intro">Download the product template, fill in the bill reference, date and quantities in a spreadsheet, then upload the same file back here to post the whole bill at once.</p>
+
+        <div class="csv-bulk-step">
+          <button class="button button-outline compact-button" type="button" id="csv-download-template">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV template
+          </button>
+          <p class="field-hint">One row per product. Leave Quantity blank for anything not on this bill — only rows with a quantity are posted.</p>
+        </div>
+
+        <label class="form-field">
+          <span>Upload filled-in CSV</span>
+          <input id="csv-upload-input" type="file" accept=".csv,text/csv" />
+        </label>
+
+        <p id="csv-parse-error" class="admin-auth-error" hidden></p>
+
+        <div id="csv-preview" hidden>
+          <p class="field-hint" id="csv-preview-summary"></p>
+          <div id="csv-preview-warnings"></div>
+          <div class="table-shell csv-preview-table-shell">
+            <table class="route-table admin-table">
+              <thead><tr><th>PRODUCT</th><th>QUANTITY</th></tr></thead>
+              <tbody id="csv-preview-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="button button-quiet" id="cancel-csv-inward" type="button">Cancel</button>
+          <button class="button button-primary" id="confirm-csv-inward" type="button" disabled>Post this bill</button>
+        </div>
+      </div>
+    </div>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <div id="busy-overlay" class="busy-overlay" hidden aria-hidden="true"><div class="busy-spinner"></div></div>
     <script src="/app.js" defer></script>
   </body>
 </html>

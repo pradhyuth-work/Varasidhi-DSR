@@ -60,25 +60,40 @@
   const initials = (name) => String(name || '—').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '—';
   const setHidden = (id, hidden) => { $(id).hidden = hidden; };
 
+  // Every write (anything not a GET) shows a blurred, click-blocking overlay
+  // for as long as it's in flight, so the user can see a change is being
+  // saved instead of clicking away or re-submitting mid-request. Counted
+  // rather than boolean so overlapping writes (e.g. an admin refresh firing
+  // alongside a save) don't let one finishing early hide it too soon.
+  let pendingWrites = 0;
+  function beginWrite() { pendingWrites += 1; if (pendingWrites === 1) setHidden('busy-overlay', false); }
+  function endWrite() { pendingWrites = Math.max(0, pendingWrites - 1); if (pendingWrites === 0) setHidden('busy-overlay', true); }
+
   async function request(path, options = {}) {
-    const response = await fetch(path, {
-      credentials: 'include',
-      ...options,
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    });
-    if (!response.ok) {
-      // A 401 means the session is missing/expired — surface the login gate.
-      if (response.status === 401) {
-        const ls = document.getElementById('login-screen');
-        if (ls) ls.hidden = false;
+    const isWrite = String(options.method || 'GET').toUpperCase() !== 'GET';
+    if (isWrite) beginWrite();
+    try {
+      const response = await fetch(path, {
+        credentials: 'include',
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      });
+      if (!response.ok) {
+        // A 401 means the session is missing/expired — surface the login gate.
+        if (response.status === 401) {
+          const ls = document.getElementById('login-screen');
+          if (ls) ls.hidden = false;
+        }
+        let message = `Request failed (${response.status})`;
+        try { const body = await response.json(); message = body.message || body.error || message; } catch (_) { /* non-json error */ }
+        throw new Error(message);
       }
-      let message = `Request failed (${response.status})`;
-      try { const body = await response.json(); message = body.message || body.error || message; } catch (_) { /* non-json error */ }
-      throw new Error(message);
+      if (response.status === 204) return null;
+      const contentType = response.headers.get('content-type') || '';
+      return contentType.includes('application/json') ? response.json() : response;
+    } finally {
+      if (isWrite) endWrite();
     }
-    if (response.status === 204) return null;
-    const contentType = response.headers.get('content-type') || '';
-    return contentType.includes('application/json') ? response.json() : response;
   }
 
   const adminOptions = (options = {}) => ({
@@ -1540,7 +1555,12 @@
       const product = await request(`/api/products/${encodeURIComponent(productId)}/rate`, adminOptions({ method: 'PATCH', body: JSON.stringify({ unitPrice }) }));
       state.products = state.products.map((item) => Number(item.id) === Number(product.id) ? product : item);
       renderAdmin();
-      adminMessage('Rate updated. Future DSR sessions will use the new price.');
+      // The backend applies the new rate to every route that hasn't settled
+      // yet, so pull the active session back too — otherwise it keeps
+      // showing the old price until the buyer picker is switched or the
+      // page is reloaded.
+      if (state.selectedBuyerId) await loadSession(state.selectedBuyerId);
+      adminMessage('Rate updated on the master and every open route.');
       toast('Rate master updated.');
     } catch (error) { adminMessage(error.message, true); }
   }
@@ -1610,6 +1630,7 @@
       }
       state.products = state.products.filter((p) => Number(p.id) !== Number(productId));
       renderAdmin();
+      if (state.selectedBuyerId) await loadSession(state.selectedBuyerId);
       adminMessage('Product deleted.');
       toast('Product removed from master.');
     } catch (error) { adminMessage(error.message, true); }
@@ -1622,6 +1643,7 @@
       state.purchases = state.purchases.filter((p) => Number(p.id) !== Number(purchaseId));
       await loadAdminData();
       renderAdmin();
+      if (state.selectedBuyerId) await loadSession(state.selectedBuyerId);
       adminMessage('Purchase record deleted and warehouse stock reversed.');
       toast('Purchase deleted.');
     } catch (error) { adminMessage(error.message, true); }
@@ -1732,11 +1754,226 @@
       resetPurchaseLines();
       // Several products' stock moved, so pull the whole admin view back fresh.
       await loadAdminData();
+      // ...and the active session's load-in screen, which shows warehouse stock too.
+      if (state.selectedBuyerId) await loadSession(state.selectedBuyerId);
       adminMessage(result.lineCount === 1
         ? `Purchase posted. ${escapeHtml(result.purchases[0].product_name)} stock is now ${integer(result.purchases[0].warehouse_stock)}.`
         : `Bill posted — ${result.lineCount} products, ${integer(result.totalQty)} units inwarded.`);
       toast('Inventory inwarded.');
     } catch (error) { adminMessage(error.message, true); } finally { setBusy(false, 'add-purchase'); }
+  }
+
+  // ---- CSV bulk inwarding --------------------------------------------------
+  // Reuses the exact same /api/inventory/purchase endpoint (and its 50-line
+  // cap, one-transaction-or-none posting) as the manual multi-line form above
+  // — this feature only builds that same { lines, supplierRef } payload from
+  // an uploaded file instead of the on-screen rows, so every server-side
+  // guarantee that already protects manual entry applies here unchanged.
+
+  function csvField(value) { return `"${String(value ?? '').replaceAll('"', '""')}"`; }
+
+  function downloadInwardTemplateCsv() {
+    if (!state.products.length) return toast('Load the product list first.', 'error');
+    const csv = [
+      `${csvField('Bill Reference')},${csvField('')}`,
+      `${csvField('Date')},${csvField(todayIso())}`,
+      '',
+      [csvField('Product ID'), csvField('Product Name'), csvField('Quantity')].join(','),
+      ...state.products.map((p) => [csvField(p.id), csvField(p.name), csvField('')].join(',')),
+    ].join('\n');
+    downloadCsvBlob(csv, `inventory-inward-template-${todayIso()}.csv`);
+    toast('Template downloaded — fill in quantities and upload it back here.');
+  }
+
+  // Minimal RFC4180-ish CSV reader: handles quoted fields, "" escaped quotes,
+  // commas/newlines inside quotes, CRLF or LF line endings, a leading UTF-8
+  // BOM (Excel adds one), and drops fully-blank rows (Excel often trails a
+  // sheet with empty ones).
+  function parseCsv(text) {
+    let src = String(text ?? '');
+    if (src.charCodeAt(0) === 0xFEFF) src = src.slice(1); // strip a leading UTF-8 BOM (Excel adds one)
+    const rows = [];
+    let row = [];
+    let field = '';
+    let inQuotes = false;
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (src[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+        } else field += ch;
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        row.push(field); field = '';
+      } else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && src[i + 1] === '\n') i++;
+        row.push(field); field = '';
+        rows.push(row); row = [];
+      } else {
+        field += ch;
+      }
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter((r) => r.some((cell) => cell.trim() !== ''));
+  }
+
+  // Validates an uploaded template against the CURRENT product list (not
+  // whatever was true when the file was downloaded) and returns exactly the
+  // shape /api/inventory/purchase expects, plus any non-blocking warnings to
+  // show before the admin confirms. Throws with a specific, row-numbered
+  // message for anything that would otherwise post the wrong thing.
+  function parseInwardCsv(text) {
+    const rows = parseCsv(text);
+    let billRef = '';
+    let billDate = '';
+    let idx = 0;
+    while (idx < rows.length) {
+      const label = (rows[idx][0] || '').trim().toLowerCase();
+      if (label === 'bill reference') { billRef = (rows[idx][1] || '').trim(); idx++; continue; }
+      if (label === 'date') { billDate = (rows[idx][1] || '').trim(); idx++; continue; }
+      break;
+    }
+    const header = (rows[idx] || []).map((c) => c.trim().toLowerCase());
+    if (header[0] !== 'product id' || header[1] !== 'product name' || header[2] !== 'quantity') {
+      throw new Error('This doesn’t look like the inventory template — expected a "Product ID, Product Name, Quantity" header row. Download a fresh template and fill that in.');
+    }
+    const dataRows = rows.slice(idx + 1);
+    if (!dataRows.length) throw new Error('No product rows found in this file.');
+
+    const byId = new Map(state.products.map((p) => [Number(p.id), p]));
+    const lines = [];
+    const warnings = [];
+    const seenCount = new Map();
+    for (const [rowIdx, r] of dataRows.entries()) {
+      const rawId = (r[0] || '').trim();
+      const rawName = (r[1] || '').trim();
+      const rawQty = (r[2] || '').trim();
+      if (!rawId && !rawQty) continue;
+      const productId = Number(rawId);
+      if (!Number.isInteger(productId) || productId < 1) {
+        throw new Error(`Row ${rowIdx + 1}: "${rawId}" is not a valid Product ID.`);
+      }
+      if (rawQty === '') continue; // nothing on this bill for this product
+      const qty = Number(rawQty);
+      if (!Number.isInteger(qty) || qty <= 0) {
+        throw new Error(`Row ${rowIdx + 1} (Product ${productId}): Quantity must be a positive whole number — got "${rawQty}".`);
+      }
+      const product = byId.get(productId);
+      if (!product) {
+        throw new Error(`Row ${rowIdx + 1}: Product ID ${productId} was not found in the current product list. It may have been deleted or renumbered since this file was downloaded — download a fresh template and re-enter this line.`);
+      }
+      if (rawName && product.name.trim().toLowerCase() !== rawName.toLowerCase()) {
+        warnings.push(`Row ${rowIdx + 1}: Product ID ${productId} is now "${product.name}", but the file says "${rawName}" — it may have been renamed or renumbered since download. Double-check this is the right product.`);
+      }
+      lines.push({ productId, qtyAdded: qty, productName: product.name });
+      seenCount.set(productId, (seenCount.get(productId) || 0) + 1);
+    }
+    if (!lines.length) throw new Error('No quantities were entered — fill in the Quantity column for at least one product.');
+    if (lines.length > MAX_PURCHASE_LINES) {
+      throw new Error(`A bill can hold at most ${MAX_PURCHASE_LINES} lines — this file has ${lines.length}. Split it across more than one bill.`);
+    }
+    for (const [pid, count] of seenCount) {
+      if (count > 1) warnings.push(`Product ID ${pid} appears on ${count} separate rows — each will post as its own line item, same as listing a product twice on a paper bill.`);
+    }
+    return { lines, billRef, billDate, warnings };
+  }
+
+  let csvInwardParsed = null;
+
+  function resetCsvInwardModal() {
+    csvInwardParsed = null;
+    if ($('csv-upload-input')) $('csv-upload-input').value = '';
+    setHidden('csv-parse-error', true);
+    setHidden('csv-preview', true);
+    $('csv-preview-body').innerHTML = '';
+    $('csv-preview-warnings').innerHTML = '';
+    $('confirm-csv-inward').disabled = true;
+  }
+
+  function openCsvInwardModal() {
+    resetCsvInwardModal();
+    setHidden('csv-inward-modal', false);
+  }
+
+  function closeCsvInwardModal() {
+    setHidden('csv-inward-modal', true);
+    resetCsvInwardModal();
+  }
+
+  // Parse failures replace the preview (the file wasn't usable as-is); submit
+  // failures leave it in place so a transient error can just be retried.
+  function showCsvParseError(message) {
+    $('csv-parse-error').textContent = message;
+    setHidden('csv-parse-error', false);
+    setHidden('csv-preview', true);
+    $('confirm-csv-inward').disabled = true;
+    csvInwardParsed = null;
+  }
+
+  function showCsvSubmitError(message) {
+    $('csv-parse-error').textContent = message;
+    setHidden('csv-parse-error', false);
+  }
+
+  function renderCsvPreview(parsed) {
+    const totalUnits = parsed.lines.reduce((sum, line) => sum + line.qtyAdded, 0);
+    $('csv-preview-summary').textContent = `${parsed.lines.length} product line(s), ${integer(totalUnits)} unit(s) total`
+      + (parsed.supplierRef ? ` · ${parsed.supplierRef}` : '') + '.';
+    $('csv-preview-body').innerHTML = parsed.lines.map((line) =>
+      `<tr><td>${escapeHtml(line.productName)}</td><td>${integer(line.qtyAdded)}</td></tr>`,
+    ).join('');
+    const warnBox = $('csv-preview-warnings');
+    warnBox.innerHTML = parsed.warnings.length
+      ? `<div class="csv-warning-box"><b>Check before posting:</b><ul>${parsed.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul></div>`
+      : '';
+    setHidden('csv-preview', false);
+    setHidden('csv-parse-error', true);
+    $('confirm-csv-inward').disabled = false;
+  }
+
+  function handleCsvFileSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = parseInwardCsv(String(reader.result || ''));
+        const supplierRef = [parsed.billRef, parsed.billDate].filter(Boolean).join(' · ');
+        if (supplierRef.length > 120) {
+          throw new Error('Bill Reference and Date together are too long (120 characters max) — shorten one of them in the file and re-upload.');
+        }
+        csvInwardParsed = { lines: parsed.lines, supplierRef, warnings: parsed.warnings };
+        renderCsvPreview(csvInwardParsed);
+      } catch (error) {
+        showCsvParseError(error.message);
+      }
+    };
+    reader.onerror = () => showCsvParseError('Could not read this file. Re-save it as CSV and try again.');
+    reader.readAsText(file);
+  }
+
+  async function confirmCsvInward() {
+    if (!csvInwardParsed || !csvInwardParsed.lines.length) return;
+    const btn = $('confirm-csv-inward');
+    btn.disabled = true;
+    try {
+      const payload = {
+        lines: csvInwardParsed.lines.map(({ productId, qtyAdded }) => ({ productId, qtyAdded })),
+        supplierRef: csvInwardParsed.supplierRef,
+      };
+      const result = await request('/api/inventory/purchase', adminOptions({ method: 'POST', body: JSON.stringify(payload) }));
+      closeCsvInwardModal();
+      await loadAdminData();
+      if (state.selectedBuyerId) await loadSession(state.selectedBuyerId);
+      adminMessage(result.lineCount === 1
+        ? `Purchase posted. ${escapeHtml(result.purchases[0].product_name)} stock is now ${integer(result.purchases[0].warehouse_stock)}.`
+        : `Bill posted — ${result.lineCount} products, ${integer(result.totalQty)} units inwarded.`);
+      toast('Inventory inwarded from CSV.');
+    } catch (error) {
+      showCsvSubmitError(error.message);
+      btn.disabled = false;
+    }
   }
 
   function openAdminAuth() {
@@ -1895,6 +2132,8 @@
       closeStockAdjust();
       // Reload so both the product stock and the adjustment history refresh.
       await loadAdminData();
+      // Warehouse stock shows up on the active session's load-in screen too.
+      if (state.selectedBuyerId) await loadSession(state.selectedBuyerId);
       adminMessage(`Warehouse stock updated to ${integer(updated.warehouse_stock)}.`);
       toast('Warehouse stock corrected.');
     } catch (error) {
@@ -2064,6 +2303,13 @@
       remove.closest('.purchase-line').remove();
       updatePurchaseLineControls();
     });
+    $('open-csv-inward').addEventListener('click', openCsvInwardModal);
+    $('close-csv-inward').addEventListener('click', closeCsvInwardModal);
+    $('cancel-csv-inward').addEventListener('click', closeCsvInwardModal);
+    $('csv-inward-modal').addEventListener('click', (event) => { if (event.target === $('csv-inward-modal')) closeCsvInwardModal(); });
+    $('csv-download-template').addEventListener('click', downloadInwardTemplateCsv);
+    $('csv-upload-input').addEventListener('change', handleCsvFileSelected);
+    $('confirm-csv-inward').addEventListener('click', confirmCsvInward);
     $('apply-report-filters').addEventListener('click', loadReport);
     $('report-download-csv').addEventListener('click', downloadReportCsv);
     $('apply-inv-filters').addEventListener('click', loadInventoryReport);
