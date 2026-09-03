@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600;700&display=swap');
 
 :root {
   --ink: #17363a;
@@ -15,12 +15,15 @@
   --red: #a3483c;
   --shadow: 0 16px 42px rgba(20, 53, 57, .07);
   --sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Fira Code, not JetBrains Mono: its zero has a real diagonal slash baked
+     into the glyph, so it stays legible against "8" even at 9-11px — a
+     JetBrains Mono zero is just a small dot that disappears at that size. */
+  --mono: 'Fira Code', ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 * { box-sizing: border-box; }
 html { min-width: 320px; background: var(--paper); }
-body { margin: 0; color: var(--ink); background: var(--paper); font: 14px/1.45 var(--sans); }
+body { margin: 0; color: var(--ink); background: var(--paper); font: 14px/1.45 var(--sans); font-variant-numeric: slashed-zero tabular-nums; }
 button, input, select { font: inherit; }
 button, select { cursor: pointer; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(217, 148, 66, .35); outline-offset: 2px; }
