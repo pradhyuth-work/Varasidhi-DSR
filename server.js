@@ -1068,17 +1068,22 @@ app.post("/api/dsr/load-in", async (req, res) => {
   }
 });
 
-// Admin-only correction: directly set the "previously loaded" figure for one
-// product on a route, e.g. to fix a data-entry mistake. Unlike the normal
-// load-in flow above, this does NOT touch warehouse_stock — it only rewrites
-// dsr_items.loaded_stock for the active session.
+// Admin-only correction: directly set the "total dispatched" figure (opening
+// + loaded stock) for one product on a route, e.g. to fix a data-entry
+// mistake. Editing total dispatched rather than loaded stock alone lets a
+// correction go below the carried-over opening stock — something a
+// loaded-stock-only edit can't express, since loaded stock has a floor of 0.
+// dsr_items.opening_stock is left untouched; loaded_stock absorbs the
+// difference and MAY end up negative, which is fine — it's an internal
+// component of the total, not a figure shown as a real "units loaded" count.
+// Unlike the normal load-in flow above, this does NOT touch warehouse_stock.
 app.post("/api/dsr/load-in/correct", async (req, res) => {
-  if (!isAdmin(req)) return fail(res, 403, "Only Admin can edit loaded stock directly.");
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can edit total dispatched stock directly.");
   const buyerId = positiveInteger(req.body?.buyerId);
   const productId = positiveInteger(req.body?.productId);
-  const loadedStock = positiveInteger(req.body?.loadedStock);
-  if (buyerId === null || productId === null || loadedStock === null) {
-    return fail(res, 400, "Buyer, product, and a whole-number loaded stock are required.");
+  const totalDispatched = positiveInteger(req.body?.totalDispatched);
+  if (buyerId === null || productId === null || totalDispatched === null) {
+    return fail(res, 400, "Buyer, product, and a whole-number total dispatched are required.");
   }
   try {
     const session = await database.get(
@@ -1093,14 +1098,15 @@ app.post("/api/dsr/load-in/correct", async (req, res) => {
       [session.id, productId],
     );
     if (!item) return fail(res, 404, "This route item could not be found.");
-    if (item.closing_stock > item.opening_stock + loadedStock) {
-      return fail(res, 409, "Loaded stock cannot be less than the closing stock already recorded for this route.");
+    if (item.closing_stock > totalDispatched) {
+      return fail(res, 409, "Total dispatched cannot be less than the closing stock already recorded for this route.");
     }
+    const loadedStock = totalDispatched - item.opening_stock;
     await database.run("UPDATE dsr_items SET loaded_stock = ? WHERE id = ?", [loadedStock, item.id]);
     res.json(await getSessionPayload(session.id));
   } catch (error) {
-    console.error("Failed to correct loaded stock", error);
-    fail(res, 500, "Unable to update loaded stock.");
+    console.error("Failed to correct total dispatched", error);
+    fail(res, 500, "Unable to update total dispatched.");
   }
 });
 

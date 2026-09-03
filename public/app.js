@@ -1294,13 +1294,16 @@
     const itemById = new Map(state.items.map((item) => [Number(item.product_id), item]));
     $('load-body').innerHTML = state.items.length ? state.items.map((item, index) => {
       const draft = Number(state.loadDrafts[item.product_id] || 0);
-      const routeStock = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0) + draft;
-      // Admin can correct the "previously loaded" figure directly (e.g. fixing a data-entry
+      const dispatchedTotal = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0);
+      const routeStock = dispatchedTotal + draft;
+      // Admin can correct the "total dispatched" figure directly (e.g. fixing a data-entry
       // mistake) without it re-triggering the warehouse debit that the normal load-in flow does.
-      const loadedCell = (state.role === 'Admin' && !settled)
-        ? `<div class="stock-cell"><span>${integer(item.loaded_stock)}</span><button class="button button-quiet compact-button loaded-adjust" type="button" data-loaded-adjust="${escapeHtml(item.product_id)}">Edit</button></div>`
-        : integer(item.loaded_stock);
-      return `<tr data-row-product="${escapeHtml(item.product_id)}"><td><div class="product-cell"><span class="product-index">${String(item.product_id).padStart(2, '0')}</span><span>${escapeHtml(item.product_name || `Product ${item.product_id}`)}</span></div></td><td class="stock-quiet">${integer(item.warehouse_stock)}</td><td>${integer(item.opening_stock)}</td><td class="stock-quiet">${loadedCell}</td><td><input class="number-input load-input" data-product-id="${escapeHtml(item.product_id)}" type="number" min="0" step="1" value="${draft}" ${settled ? 'disabled' : ''} aria-label="Additional load for ${escapeHtml(item.product_name)}" data-testid="input-load-${escapeHtml(item.product_id)}" /></td><td class="route-stock">${integer(routeStock)}</td><td class="price">${currency(item.unit_price)}</td></tr>`;
+      // Editing the total (not loaded stock alone) lets a correction go below the carried-over
+      // opening stock, which a loaded-stock-only edit can't express since it has a floor of 0.
+      const dispatchedCell = (state.role === 'Admin' && !settled)
+        ? `<div class="stock-cell"><span data-route-stock-for="${escapeHtml(item.product_id)}">${integer(routeStock)}</span><button class="button button-quiet compact-button loaded-adjust" type="button" data-loaded-adjust="${escapeHtml(item.product_id)}">Edit</button></div>`
+        : `<span data-route-stock-for="${escapeHtml(item.product_id)}">${integer(routeStock)}</span>`;
+      return `<tr data-row-product="${escapeHtml(item.product_id)}"><td><div class="product-cell"><span class="product-index">${String(item.product_id).padStart(2, '0')}</span><span>${escapeHtml(item.product_name || `Product ${item.product_id}`)}</span></div></td><td class="stock-quiet">${integer(item.warehouse_stock)}</td><td>${integer(item.opening_stock)}</td><td class="stock-quiet">${integer(item.loaded_stock)}</td><td><input class="number-input load-input" data-product-id="${escapeHtml(item.product_id)}" type="number" min="0" step="1" value="${draft}" ${settled ? 'disabled' : ''} aria-label="Additional load for ${escapeHtml(item.product_name)}" data-testid="input-load-${escapeHtml(item.product_id)}" /></td><td class="route-stock">${dispatchedCell}</td><td class="price">${currency(item.unit_price)}</td></tr>`;
     }).join('') : '<tr><td colspan="7">No products are attached to this route.</td></tr>';
     $('closing-body').innerHTML = state.items.length ? state.items.map((item, index) => {
       const routeStock = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0) + Number(state.loadDrafts[item.product_id] || 0);
@@ -1323,7 +1326,8 @@
       const lineTotal = roundMoney(sold * Number(item.unit_price || 0));
       sales += lineTotal;
       const row = document.querySelector(`[data-row-product="${CSS.escape(String(item.product_id))}"]`);
-      if (row) row.querySelector('.route-stock').textContent = integer(routeStock);
+      const dispatchSpan = row?.querySelector('[data-route-stock-for]');
+      if (dispatchSpan) dispatchSpan.textContent = integer(routeStock);
       const soldCell = document.querySelector(`[data-sold-for="${CSS.escape(String(item.product_id))}"]`);
       const totalCell = document.querySelector(`[data-total-for="${CSS.escape(String(item.product_id))}"]`);
       if (soldCell) soldCell.textContent = integer(sold);
@@ -2519,19 +2523,24 @@
     }
   }
 
-  // ---- Loaded-stock correction (admin only, load-in page) ----------------
-  // Lets Admin fix a route's "previously loaded" figure directly — e.g. after
-  // a data-entry mistake — without it touching warehouse_stock, unlike the
-  // normal load-in flow which debits the warehouse for every additional load.
+  // ---- Total-dispatched correction (admin only, load-in page) ------------
+  // Lets Admin fix a route's "total dispatched" figure (opening + loaded
+  // stock) directly — e.g. after a data-entry mistake — without it touching
+  // warehouse_stock, unlike the normal load-in flow which debits the
+  // warehouse for every additional load. Editing the total rather than
+  // loaded stock alone lets a correction go below the carried-over opening
+  // stock, which loaded stock alone can't express since it can't go negative
+  // on its own — the server absorbs that into loaded_stock internally.
   let loadedAdjustProductId = null;
   function openLoadedAdjust(productId) {
     const item = state.items.find((i) => Number(i.product_id) === Number(productId));
     if (!item) return;
+    const dispatchedTotal = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0);
     loadedAdjustProductId = item.product_id;
     $('loaded-adjust-product').textContent = item.product_name || `Product ${item.product_id}`;
-    $('loaded-adjust-current').textContent = integer(item.loaded_stock);
+    $('loaded-adjust-current').textContent = integer(dispatchedTotal);
     $('loaded-adjust-form').reset();
-    $('loaded-adjust-value').value = item.loaded_stock;
+    $('loaded-adjust-value').value = dispatchedTotal;
     setHidden('loaded-adjust-error', true);
     setHidden('loaded-adjust-modal', false);
     window.setTimeout(() => $('loaded-adjust-value').focus(), 40);
@@ -2555,13 +2564,13 @@
         body: JSON.stringify({
           buyerId: Number(state.selectedBuyerId),
           productId: Number(loadedAdjustProductId),
-          loadedStock: value,
+          totalDispatched: value,
         }),
       }));
       closeLoadedAdjust();
       hydratePayload(payload);
       render();
-      toast('Loaded stock corrected. Warehouse counts were not changed.');
+      toast('Total dispatched corrected. Warehouse counts were not changed.');
     } catch (error) {
       showLoadedAdjustError(error.message);
     } finally {
