@@ -1976,6 +1976,187 @@
     }
   }
 
+  // ---- CSV bulk buyer onboarding -------------------------------------------
+  // Wide format: one row per buyer, one column per product (opening balance
+  // and product quantities become that buyer's day-zero stock on hand). Posts
+  // to /api/profiles/bulk, which models "stock on hand" as a SETTLED session
+  // dated today — see the server-side comment for why that's the right shape.
+
+  const MAX_BULK_PROFILES = 100;
+
+  function downloadBulkProfileTemplateCsv() {
+    if (!state.products.length) return toast('Load the product list first.', 'error');
+    const header = ['Buyer Name', 'Previous Balance', ...state.products.map((p) => `${p.id}: ${p.name}`)];
+    downloadCsvBlob(header.map(csvField).join(','), `buyer-bulk-upload-template-${todayIso()}.csv`);
+    toast('Template downloaded — fill in buyers and upload it back here.');
+  }
+
+  // Validates an uploaded template against the CURRENT product list (columns
+  // are matched by the numeric id before the colon in each header, so a
+  // product rename since download still works). Throws with a specific,
+  // row-numbered message for anything that would otherwise post the wrong
+  // thing; non-fatal issues (a renamed/deleted product column, a name that
+  // collides with an existing buyer, duplicate rows) come back as warnings.
+  function parseBulkProfileCsv(text) {
+    const rows = parseCsv(text);
+    if (!rows.length) throw new Error('This file is empty.');
+    const header = rows[0].map((c) => c.trim());
+    if (header[0]?.toLowerCase() !== 'buyer name' || header[1]?.toLowerCase() !== 'previous balance') {
+      throw new Error('This doesn’t look like the buyer template — expected "Buyer Name, Previous Balance, …" as the header row. Download a fresh template and fill that in.');
+    }
+
+    const byId = new Map(state.products.map((p) => [Number(p.id), p]));
+    const warnings = [];
+    const columnProducts = [];
+    for (let col = 2; col < header.length; col++) {
+      const raw = header[col].trim();
+      const match = raw.match(/^(\d+)\s*:/);
+      const product = match ? byId.get(Number(match[1])) : null;
+      if (!product) {
+        if (raw) warnings.push(`Column "${raw}" doesn't match a current product — it was ignored. Download a fresh template if products changed since this file was made.`);
+        columnProducts.push(null);
+        continue;
+      }
+      columnProducts.push({ productId: product.id, product });
+    }
+
+    const dataRows = rows.slice(1);
+    if (!dataRows.length) throw new Error('No buyer rows found in this file.');
+    if (dataRows.length > MAX_BULK_PROFILES) {
+      throw new Error(`A bulk upload can hold at most ${MAX_BULK_PROFILES} buyers — this file has ${dataRows.length}. Split it across more than one upload.`);
+    }
+
+    const existingNames = new Set(state.profiles.map((p) => p.name.trim().toLowerCase()));
+    const seenNames = new Map();
+    const buyers = [];
+    for (const [rowIdx, r] of dataRows.entries()) {
+      const fileRow = rowIdx + 2; // +1 for the header, +1 for 1-based display
+      const name = (r[0] || '').trim();
+      const rawBalance = (r[1] || '').trim();
+      if (!name) throw new Error(`Row ${fileRow}: a buyer name is required.`);
+      if (name.length > 120) throw new Error(`Row ${fileRow}: buyer name is too long (120 characters max).`);
+      const currentBalance = rawBalance === '' ? 0 : Number(rawBalance);
+      if (!Number.isFinite(currentBalance) || currentBalance < 0) {
+        throw new Error(`Row ${fileRow} (${name}): Previous Balance must be zero or greater — got "${rawBalance}".`);
+      }
+      const stock = [];
+      let totalUnits = 0;
+      columnProducts.forEach((entry, i) => {
+        if (!entry) return;
+        const raw = (r[i + 2] || '').trim();
+        if (raw === '') return;
+        const qty = Number(raw);
+        if (!Number.isInteger(qty) || qty < 0) {
+          throw new Error(`Row ${fileRow} (${name}), ${entry.product.name}: quantity must be a whole number zero or greater — got "${raw}".`);
+        }
+        if (qty === 0) return;
+        stock.push({ productId: entry.productId, qty });
+        totalUnits += qty;
+      });
+      const nameKey = name.toLowerCase();
+      const seen = seenNames.get(nameKey);
+      seenNames.set(nameKey, { name, count: (seen?.count || 0) + 1 });
+      if (existingNames.has(nameKey)) {
+        warnings.push(`Row ${fileRow}: "${name}" matches an existing buyer profile — this will create a separate, duplicate profile.`);
+      }
+      buyers.push({ name, currentBalance, stock, totalUnits });
+    }
+    for (const { name, count } of seenNames.values()) {
+      if (count > 1) warnings.push(`"${name}" appears on ${count} separate rows — each will create its own buyer profile.`);
+    }
+    return { buyers, warnings };
+  }
+
+  let bulkProfileParsed = null;
+
+  function resetBulkProfileModal() {
+    bulkProfileParsed = null;
+    if ($('bulk-profile-upload-input')) $('bulk-profile-upload-input').value = '';
+    setHidden('bulk-profile-parse-error', true);
+    setHidden('bulk-profile-preview', true);
+    $('bulk-profile-preview-body').innerHTML = '';
+    $('bulk-profile-preview-warnings').innerHTML = '';
+    $('confirm-bulk-profile').disabled = true;
+  }
+
+  function openBulkProfileModal() {
+    resetBulkProfileModal();
+    setHidden('bulk-profile-modal', false);
+  }
+
+  function closeBulkProfileModal() {
+    setHidden('bulk-profile-modal', true);
+    resetBulkProfileModal();
+  }
+
+  function showBulkProfileParseError(message) {
+    $('bulk-profile-parse-error').textContent = message;
+    setHidden('bulk-profile-parse-error', false);
+    setHidden('bulk-profile-preview', true);
+    $('confirm-bulk-profile').disabled = true;
+    bulkProfileParsed = null;
+  }
+
+  function showBulkProfileSubmitError(message) {
+    $('bulk-profile-parse-error').textContent = message;
+    setHidden('bulk-profile-parse-error', false);
+  }
+
+  function renderBulkProfilePreview(parsed) {
+    const totalUnits = parsed.buyers.reduce((sum, b) => sum + b.totalUnits, 0);
+    $('bulk-profile-preview-summary').textContent =
+      `${parsed.buyers.length} buyer(s), ${integer(totalUnits)} unit(s) of stock on hand total.`;
+    $('bulk-profile-preview-body').innerHTML = parsed.buyers.map((b) =>
+      `<tr><td>${escapeHtml(b.name)}</td><td>${currency(b.currentBalance)}</td><td>${b.stock.length ? `${integer(b.stock.length)} product(s)` : '—'}</td><td>${integer(b.totalUnits)}</td></tr>`,
+    ).join('');
+    const warnBox = $('bulk-profile-preview-warnings');
+    warnBox.innerHTML = parsed.warnings.length
+      ? `<div class="csv-warning-box"><b>Check before posting:</b><ul>${parsed.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul></div>`
+      : '';
+    setHidden('bulk-profile-preview', false);
+    setHidden('bulk-profile-parse-error', true);
+    $('confirm-bulk-profile').disabled = false;
+  }
+
+  function handleBulkProfileFileSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = parseBulkProfileCsv(String(reader.result || ''));
+        bulkProfileParsed = parsed;
+        renderBulkProfilePreview(parsed);
+      } catch (error) {
+        showBulkProfileParseError(error.message);
+      }
+    };
+    reader.onerror = () => showBulkProfileParseError('Could not read this file. Re-save it as CSV and try again.');
+    reader.readAsText(file);
+  }
+
+  async function confirmBulkProfile() {
+    if (!bulkProfileParsed || !bulkProfileParsed.buyers.length) return;
+    const btn = $('confirm-bulk-profile');
+    btn.disabled = true;
+    try {
+      const payload = {
+        profiles: bulkProfileParsed.buyers.map(({ name, currentBalance, stock }) => ({
+          name, currentBalance,
+          stock: stock.map(({ productId, qty }) => ({ productId, qty })),
+        })),
+      };
+      const result = await request('/api/profiles/bulk', adminOptions({ method: 'POST', body: JSON.stringify(payload) }));
+      closeBulkProfileModal();
+      await loadProfiles();
+      adminMessage(`${result.count} buyer profile${result.count === 1 ? '' : 's'} added.`);
+      toast('Buyers added from CSV.');
+    } catch (error) {
+      showBulkProfileSubmitError(error.message);
+      btn.disabled = false;
+    }
+  }
+
   function openAdminAuth() {
     $('admin-auth-form').reset();
     setHidden('admin-auth-error', true);
@@ -2310,6 +2491,13 @@
     $('csv-download-template').addEventListener('click', downloadInwardTemplateCsv);
     $('csv-upload-input').addEventListener('change', handleCsvFileSelected);
     $('confirm-csv-inward').addEventListener('click', confirmCsvInward);
+    $('open-bulk-profile').addEventListener('click', openBulkProfileModal);
+    $('close-bulk-profile').addEventListener('click', closeBulkProfileModal);
+    $('cancel-bulk-profile').addEventListener('click', closeBulkProfileModal);
+    $('bulk-profile-modal').addEventListener('click', (event) => { if (event.target === $('bulk-profile-modal')) closeBulkProfileModal(); });
+    $('bulk-profile-download-template').addEventListener('click', downloadBulkProfileTemplateCsv);
+    $('bulk-profile-upload-input').addEventListener('change', handleBulkProfileFileSelected);
+    $('confirm-bulk-profile').addEventListener('click', confirmBulkProfile);
     $('apply-report-filters').addEventListener('click', loadReport);
     $('report-download-csv').addEventListener('click', downloadReportCsv);
     $('apply-inv-filters').addEventListener('click', loadInventoryReport);

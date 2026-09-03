@@ -244,6 +244,96 @@ app.post("/api/profiles", async (req, res) => {
   }
 });
 
+const MAX_BULK_PROFILES = 100;
+
+// Onboard many buyers at once — each with an opening ledger balance and
+// (optionally) stock they're already holding, e.g. buyers being migrated in
+// from a paper ledger or another system.
+//
+// "Stock already on hand" is modeled as a SETTLED day-zero session dated
+// today, one dsr_items row per product (opening = loaded = closing = the
+// given quantity, qty_sold = 0). This isn't a special case: it's exactly the
+// shape a normal settled session has, so every existing code path that reads
+// "a buyer's stock" — starting their next real route (getOrCreateActiveSession
+// carries closing_stock forward as the new session's opening_stock), the
+// profile-stock report, settlement history — picks it up with no changes.
+// Warehouse totals are untouched: this stock already left the warehouse
+// before this system existed, so it was never dispatched from here.
+//
+// The whole batch is one transaction: either every buyer is created or none
+// are, so a bad row can't leave a partial import behind.
+app.post("/api/profiles/bulk", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can add buyer profiles.");
+  const rawProfiles = Array.isArray(req.body?.profiles) ? req.body.profiles : [];
+  if (rawProfiles.length === 0) return fail(res, 400, "Add at least one buyer.");
+  if (rawProfiles.length > MAX_BULK_PROFILES) {
+    return fail(res, 400, `A bulk upload can hold at most ${MAX_BULK_PROFILES} buyers.`);
+  }
+
+  const parsed = [];
+  for (const [index, entry] of rawProfiles.entries()) {
+    const name = String(entry?.name || "").trim();
+    if (!name || name.length > 120) {
+      return fail(res, 400, `Row ${index + 1}: a buyer name (max 120 characters) is required.`);
+    }
+    const currentBalance = roundMoney(entry?.currentBalance ?? 0);
+    if (!Number.isFinite(currentBalance) || currentBalance < 0) {
+      return fail(res, 400, `Row ${index + 1} (${name}): opening balance must be zero or greater.`);
+    }
+    const stockMap = new Map();
+    for (const line of Array.isArray(entry?.stock) ? entry.stock : []) {
+      const productId = positiveInteger(line?.productId);
+      const qty = positiveInteger(line?.qty);
+      if (productId === null || productId < 1 || qty === null) {
+        return fail(res, 400, `Row ${index + 1} (${name}): invalid stock quantity.`);
+      }
+      stockMap.set(productId, (stockMap.get(productId) || 0) + qty);
+    }
+    parsed.push({ name, currentBalance, stockMap });
+  }
+
+  try {
+    const createdProfiles = await withTransaction(async (tx) => {
+      const products = await tx.all("SELECT id, unit_price FROM products ORDER BY id");
+      const productIds = new Set(products.map((p) => p.id));
+      const results = [];
+      for (const entry of parsed) {
+        for (const productId of entry.stockMap.keys()) {
+          if (!productIds.has(productId)) {
+            throw new Error(`${entry.name}: product ${productId} was not found.`);
+          }
+        }
+        const profileRow = await tx.run(
+          "INSERT INTO profiles (name, current_balance) VALUES (?, ?)",
+          [entry.name, entry.currentBalance],
+        );
+        const sessionRow = await tx.run(
+          `INSERT INTO dsr_sessions
+            (buyer_id, date, prev_balance, total_sales, total_payments, updated_balance, status)
+           VALUES (?, ?, ?, 0, 0, ?, 'SETTLED')`,
+          [profileRow.id, today(), entry.currentBalance, entry.currentBalance],
+        );
+        for (const product of products) {
+          const qty = entry.stockMap.get(product.id) || 0;
+          await tx.run(
+            `INSERT INTO dsr_items
+              (dsr_id, product_id, opening_stock, loaded_stock, closing_stock,
+               qty_sold, unit_price, line_total)
+             VALUES (?, ?, ?, ?, ?, 0, ?, 0)`,
+            [sessionRow.id, product.id, qty, qty, qty, product.unit_price],
+          );
+        }
+        results.push({ id: profileRow.id, name: entry.name, current_balance: entry.currentBalance });
+      }
+      return results;
+    });
+    res.status(201).json({ profiles: createdProfiles, count: createdProfiles.length });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to add buyer profiles.";
+    fail(res, /not found/i.test(message) ? 404 : 400, message);
+  }
+});
+
 // Rename a buyer. The name is display-only — every join is on profiles.id — so
 // renaming rewrites history's label without disturbing any figures.
 app.patch("/api/profiles/:id/name", async (req, res) => {
