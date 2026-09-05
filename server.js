@@ -18,7 +18,11 @@ const positiveAmount = (value) => {
   const amount = roundMoney(value);
   return Number.isFinite(amount) && amount > 0 ? amount : null;
 };
-const today = () => new Date().toISOString().slice(0, 10);
+// IST, not the server's own clock/UTC — this business runs on India time, and
+// toISOString() is always UTC, which silently dates anything done between
+// midnight and ~5:30am IST to the previous day.
+const IST_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" });
+const today = () => IST_DATE_FORMAT.format(new Date());
 // Admin status is derived from the verified session cookie (set on the request
 // by the auth middleware below), NOT from a client-supplied header.
 const isAdmin = (req) => req.userRole === "admin";
