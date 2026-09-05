@@ -1002,6 +1002,9 @@
   function renderSettlementDetail(session) {
     const products = session.items;
     $('settle-detail-title').textContent = `${session.buyer_name} · ${dateLabel(session.date)}`;
+    const reopenBtn = $('settle-reopen-btn');
+    reopenBtn.hidden = state.role !== 'Admin';
+    reopenBtn.dataset.dsrId = session.id;
     if (!products.length) {
       $('settle-pivot-head').innerHTML = '';
       $('settle-pivot-body').innerHTML = '<tr><td>No product data found.</td></tr>';
@@ -1135,6 +1138,23 @@
       `settlement-${session.buyer_name.replace(/\s+/g, '-')}-${session.date}.png`,
     );
     toast('Settlement snapshot downloaded.');
+  }
+
+  async function reopenSettlement() {
+    const dsrId = Number($('settle-reopen-btn').dataset.dsrId);
+    if (!dsrId) return;
+    if (!window.confirm('Reopen this route for editing? It will go back to IN_PROGRESS so you can fix closing stock and re-settle it.')) return;
+    setBusy(true, 'settle-reopen-btn');
+    try {
+      await request('/api/dsr/reopen', { method: 'POST', body: JSON.stringify({ dsrId }) });
+      toast('Route reopened. Go to that buyer’s route to edit closing stock and settle again.');
+      state.settlementData = null;
+      await loadSettlement();
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      setBusy(false, 'settle-reopen-btn');
+    }
   }
   // ── End Settlement Report ──────────────────────────────────────────────
 
@@ -2832,6 +2852,7 @@
     $('download-backup').addEventListener('click', downloadBackup);
     $('settle-download-csv').addEventListener('click', downloadSettlementCsv);
     $('settle-download-snapshot').addEventListener('click', downloadSettlementSnapshot);
+    $('settle-reopen-btn').addEventListener('click', reopenSettlement);
     $('return-stock-btn').addEventListener('click', openReturnStockModal);
     $('close-return-stock').addEventListener('click', () => setHidden('return-stock-modal', true));
     $('cancel-return-stock').addEventListener('click', () => setHidden('return-stock-modal', true));

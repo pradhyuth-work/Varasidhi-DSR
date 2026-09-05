@@ -1286,6 +1286,82 @@ app.post("/api/dsr/settle", async (req, res) => {
   }
 });
 
+// Admin-only: unlock a settled route so its closing stock / sales can be
+// re-entered through the normal close + settle flow. Only the buyer's most
+// recently settled route is eligible, and only if no real work has happened
+// on whatever route came after it — otherwise that later route's own opening
+// stock and figures depend on numbers this reopen would be changing.
+// Never touches warehouse_stock: load-in already moved that stock out of the
+// warehouse when it happened, and reopening doesn't undo the load-in itself.
+// If a fully-untouched next route already exists (auto-created by simply
+// opening the buyer's page), it's deleted rather than patched — it carries no
+// real data, and letting the normal flow recreate it later (from the
+// corrected closing stock, once this route is re-settled) is far simpler and
+// safer than trying to reconcile two routes.
+app.post("/api/dsr/reopen", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can reopen a settled route.");
+  const dsrId = positiveInteger(req.body?.dsrId);
+  if (dsrId === null || dsrId < 1) {
+    return fail(res, 400, "A DSR session id is required.");
+  }
+  try {
+    const session = await database.get(
+      "SELECT id, buyer_id, status FROM dsr_sessions WHERE id = ?",
+      [dsrId],
+    );
+    if (!session) return fail(res, 404, "DSR session not found.");
+    if (session.status !== "SETTLED") return fail(res, 409, "This route is not settled.");
+
+    const latestSettled = await database.get(
+      `SELECT id FROM dsr_sessions
+        WHERE buyer_id = ? AND status = 'SETTLED'
+        ORDER BY id DESC LIMIT 1`,
+      [session.buyer_id],
+    );
+    if (!latestSettled || latestSettled.id !== dsrId) {
+      return fail(res, 409, "Only the buyer's most recently settled route can be reopened.");
+    }
+
+    const nextSession = await database.get(
+      `SELECT id, date FROM dsr_sessions WHERE buyer_id = ? AND id > ? ORDER BY id ASC LIMIT 1`,
+      [session.buyer_id, dsrId],
+    );
+    if (nextSession) {
+      const nextItems = await database.all(
+        "SELECT loaded_stock, qty_sold, opening_stock, closing_stock FROM dsr_items WHERE dsr_id = ?",
+        [nextSession.id],
+      );
+      const paymentCount = await database.get(
+        "SELECT COUNT(*)::int AS count FROM payments WHERE dsr_id = ?",
+        [nextSession.id],
+      );
+      const untouched = paymentCount.count === 0 && nextItems.every(
+        (item) => Number(item.loaded_stock) === 0
+          && Number(item.qty_sold) === 0
+          && Number(item.closing_stock) === Number(item.opening_stock),
+      );
+      if (!untouched) {
+        return fail(
+          res,
+          409,
+          `The route after this one (${nextSession.date}) already has load-in, closing, or payment activity. Fix that route first before reopening this one.`,
+        );
+      }
+    }
+
+    await withTransaction(async (tx) => {
+      if (nextSession) {
+        await tx.run("DELETE FROM dsr_sessions WHERE id = ?", [nextSession.id]);
+      }
+      await tx.run("UPDATE dsr_sessions SET status = 'IN_PROGRESS' WHERE id = ?", [dsrId]);
+    });
+    res.json(await getSessionPayload(dsrId));
+  } catch (error) {
+    console.error("Failed to reopen DSR", error);
+    fail(res, 500, "Unable to reopen this route.");
+  }
+});
+
 // Return all closing stock from a session back to warehouse inventory.
 app.post("/api/dsr/return-stock", async (req, res) => {
   const dsrId = positiveInteger(req.body?.dsrId);
