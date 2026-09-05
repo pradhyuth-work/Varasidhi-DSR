@@ -1268,11 +1268,16 @@ app.post("/api/dsr/settle", async (req, res) => {
     const totalPayments = roundMoney(paymentTotals.total_payments);
     const updatedBalance = roundMoney(session.prev_balance + session.total_sales - totalPayments);
     await withTransaction(async (tx) => {
+      // Stamp the route with today's date at settle time, not whenever it was first
+      // opened — a route can sit IN_PROGRESS across several real days (load-in and
+      // payments trickling in) before it's actually settled, and the settlement
+      // should be dated to when it was finalised, since that's what settlement
+      // history and daily reports filter and group by.
       await tx.run(
         `UPDATE dsr_sessions
-            SET total_payments = ?, updated_balance = ?, status = 'SETTLED'
+            SET date = ?, total_payments = ?, updated_balance = ?, status = 'SETTLED'
           WHERE id = ?`,
-        [totalPayments, updatedBalance, dsrId],
+        [today(), totalPayments, updatedBalance, dsrId],
       );
       await tx.run(
         "UPDATE profiles SET current_balance = ? WHERE id = (SELECT buyer_id FROM dsr_sessions WHERE id = ?)",
