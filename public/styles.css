@@ -83,6 +83,42 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 980px) { .sidebar { width: 190px; flex-basis: 190px; }.metric-grid { grid-template-columns: repeat(2, 1fr); }.page-wrap { padding-left: 28px; padding-right: 28px; }.workflow-caption { display: none; } }
+/* Tablet touch/layout polish — this is the primary device for field use, but
+   keeps the same structure as desktop (sidebar + content), just roomier touch
+   targets and a couple of components that were cramped/wrapping badly at
+   iPad-portrait widths (~760-900px content). No columns hidden, nothing
+   reflowed into a different arrangement. */
+@media (max-width: 980px) {
+  .button, .icon-button, .view-button, .admin-tab { min-height: 42px; }
+  .compact-button { min-height: 36px; }
+  .number-input, .admin-number-input { padding-top: 10px; padding-bottom: 10px; }
+  .delete-payment { width: 32px; height: 32px; }
+  /* Previously fixed-width children (balance badge, buyer selector) left almost
+     no room for the buyer name, wrapping it one word per line. Letting the row
+     wrap keeps every child at a readable width instead. */
+  .profile-panel { flex-wrap: wrap; row-gap: 14px; }
+  .profile-primary { flex: 1 1 220px; min-width: 0; }
+  .profile-balance-badge { flex: 0 0 auto; }
+  .profile-controls { flex: 0 0 auto; width: 220px; }
+  /* Breadcrumb + admin chip + sign out + view switcher had no room to share a
+     single row without wrapping mid-phrase. */
+  .topbar { flex-wrap: wrap; height: auto; min-height: 67px; row-gap: 8px; padding-top: 12px; padding-bottom: 12px; }
+  /* Same density, less padding per cell — claws back width so the route
+     tables need less horizontal scroll without dropping a column. */
+  .route-table th, .route-table td, .admin-table th, .admin-table td { padding-left: 11px; padding-right: 11px; }
+  .route-table { min-width: 660px; }
+  /* Flex items default to min-width:auto, so the settlement-detail column
+     refused to shrink below its table's content width and forced the whole
+     page wider instead of letting the table scroll inside its own box. */
+  .settle-detail-panel, .settle-session-list { min-width: 0; }
+  /* The sticky "live route summary" footer bar already wraps at phone widths
+     (see the 720px query below) but not at tablet ones, so its 4 stats plus
+     label were forced onto one unbroken row and spilled past the sidebar. */
+  .live-footer { flex-wrap: wrap; row-gap: 12px; gap: 16px; }
+  .footer-label { width: 100%; margin-right: 0; }
+  .footer-stat { min-width: 0; flex: 1 1 130px; }
+  .footer-highlight { padding-left: 16px; }
+}
 @media (max-width: 720px) { .app-shell { display: block; }.sidebar { width: 100%; height: auto; padding: 16px 18px; display: block; }.brand { padding: 0; }.nav-list, .sidebar-bottom { display: none; }.topbar { height: auto; min-height: 58px; padding: 11px 18px; gap: 12px; }.breadcrumbs { font-size: 8px; }.breadcrumbs i, .breadcrumbs b { display: none; }.role-switcher span { display: none; }.top-actions { gap: 10px; }.page-wrap { padding: 28px 17px 38px; }.page-heading { align-items: flex-start; gap: 17px; flex-direction: column; margin-bottom: 21px; }.sync-status { padding-bottom: 0; }.profile-panel { padding: 18px; display: block; }.profile-primary { margin-bottom: 17px; }.profile-controls { width: 100%; }.metric-grid { gap: 8px; }.metric-card { padding: 13px; min-height: 105px; }.metric-card strong { font-size: 17px; }.metric-card small { font-size: 10px; }.workflow-bar { padding: 13px; gap: 8px; }.workflow-step { gap: 7px; }.workflow-step > span { width: 25px; height: 25px; }.workflow-step small { display: none; }.workflow-step b { font-size: 11px; }.workflow-line { flex: 1; }.section-heading { align-items: flex-start; gap: 14px; flex-direction: column; }.section-heading.compact { align-items: flex-start; flex-direction: row; }.section-heading .button { align-self: flex-start; }.payment-row { grid-template-columns: 1.2fr 1fr 30px; gap: 8px; }.payment-label { overflow: hidden; text-overflow: ellipsis; }.payment-date { display: none; }.payment-amount { grid-column: 2; grid-row: 1; }.delete-payment { grid-column: 3; grid-row: 1; }.live-footer { gap: 14px; flex-wrap: wrap; }.footer-label { width: 100%; }.footer-stat { min-width: 0; flex: 1; }.footer-highlight { padding-left: 12px; }.settlement-note { align-items: flex-start; flex-wrap: wrap; }.settlement-note strong { width: 100%; margin: 5px 0 0 19px; }.modal { padding: 23px 18px; } }
 .view-switcher { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: #eef1eb; }
 .view-button { border: 0; border-radius: 5px; padding: 7px 10px; background: transparent; color: #71817c; font-size: 10px; font-weight: 700; white-space: nowrap; }
@@ -448,6 +484,10 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 @media (max-width: 860px) {
   .settle-layout { grid-template-columns: 1fr; }
+  /* Sticky only makes sense next to a second column to stay level with —
+     once the grid collapses to one column this froze mid-page and overlapped
+     the detail panel scrolling underneath it. */
+  .settle-layout .settle-session-list { position: static; }
 }
 
 .settle-session-list {
