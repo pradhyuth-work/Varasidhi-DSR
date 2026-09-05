@@ -42,7 +42,12 @@
 
   const $ = (id) => document.getElementById(id);
   const roundMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
-  const todayIso = () => new Date().toISOString().slice(0, 10);
+  // IST, not the device's own clock/UTC — this business runs on India time
+  // regardless of what timezone a phone or browser happens to be set to, and
+  // toISOString() is always UTC, which silently dates anything done between
+  // midnight and ~5:30am IST to the previous day.
+  const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const todayIso = () => IST_DATE_FORMAT.format(new Date());
   const firstOfMonth = () => `${todayIso().slice(0, 7)}-01`;
   const currency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const integer = (value) => Number(value || 0).toLocaleString('en-IN');
@@ -2466,10 +2471,32 @@
   function openPayment() {
     if (!state.session || state.session.status === 'SETTLED') return;
     $('payment-form').reset();
+    $('payment-label-date').value = todayIso();
     setHidden('payment-modal', false);
     window.setTimeout(() => $('payment-amount').focus(), 40);
   }
   function closePayment() { setHidden('payment-modal', true); }
+
+  function openPaymentLabelDate() {
+    const input = $('payment-label-date');
+    if (typeof input.showPicker === 'function') input.showPicker();
+    else input.focus();
+  }
+
+  // Prepends the picked date (DD-MM-YY, matching how references are typed
+  // elsewhere on this route) to whatever's already in the reference field,
+  // rather than replacing it — the date is a prefix, not the whole label.
+  function insertPaymentLabelDate() {
+    const iso = $('payment-label-date').value;
+    if (!iso) return;
+    const [y, m, d] = iso.split('-');
+    const formatted = `${d}-${m}-${y.slice(2)}`;
+    const label = $('payment-label');
+    const existing = label.value.trim();
+    label.value = existing ? `${formatted} ${existing}` : formatted;
+    label.focus();
+    label.setSelectionRange(label.value.length, label.value.length);
+  }
 
   // ---- Auth / login gate --------------------------------------------------
   function applyRole(role) {
@@ -2875,6 +2902,8 @@
     $('cancel-payment').addEventListener('click', closePayment);
     $('payment-modal').addEventListener('click', (event) => { if (event.target === $('payment-modal')) closePayment(); });
     $('payment-form').addEventListener('submit', submitPayment);
+    $('payment-label-date-btn').addEventListener('click', openPaymentLabelDate);
+    $('payment-label-date').addEventListener('change', insertPaymentLabelDate);
     $('close-admin-auth').addEventListener('click', closeAdminAuth);
     $('cancel-admin-auth').addEventListener('click', closeAdminAuth);
     $('admin-auth-modal').addEventListener('click', (event) => { if (event.target === $('admin-auth-modal')) closeAdminAuth(); });
