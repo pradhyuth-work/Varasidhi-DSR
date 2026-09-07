@@ -20,6 +20,7 @@
     busy: false,
     loadDrafts: {},
     closingDrafts: {},
+    closingSaved: false,
     dsrTab: 'dispatch',
     reportData: null,
     reportLoading: false,
@@ -194,7 +195,7 @@
     localStorage.setItem('dsr-buyer-id', String(buyerId));
     state.loading = true;
     state.dsrTab = 'dispatch';
-    state.session = null; state.items = []; state.payments = []; state.loadDrafts = {}; state.closingDrafts = {};
+    state.session = null; state.items = []; state.payments = []; state.loadDrafts = {}; state.closingDrafts = {}; state.closingSaved = false;
     render();
     try {
       const payload = await request(`/api/dsr/active/${encodeURIComponent(buyerId)}`);
@@ -1348,6 +1349,10 @@
     $('close-step').classList.toggle('active', settled);
     $('save-closing').disabled = settled;
     $('settle-route').disabled = settled;
+    // Settle & finalise stays hidden until closing stock has been saved for this
+    // session — applies the same way whether the logged-in role is Admin or
+    // Store Manager; there's nothing to settle against until closing is in.
+    setHidden('settle-route', !settled && !state.closingSaved);
     $('save-load').disabled = settled;
     $('add-payment').disabled = settled;
     // Return-stock bar: visible only when settled and at least one product has closing stock > 0
@@ -1455,6 +1460,7 @@
       const payload = await request('/api/dsr/load-in', { method: 'POST', body: JSON.stringify({ buyerId: Number(state.selectedBuyerId), items }) });
       state.loadDrafts = {};
       state.closingDrafts = {};
+      state.closingSaved = false;
       hydratePayload(payload);
       toast('Load-in saved. Warehouse counts are updated.');
       announce('Dispatch recorded for this route.');
@@ -1482,6 +1488,7 @@
       const payload = await request('/api/dsr/close', { method: 'POST', body: JSON.stringify({ dsrId: Number(state.session.id), items }) });
       hydratePayload(payload);
       state.closingDrafts = {};
+      state.closingSaved = true;
       toast('Closing stock saved. Add payments then settle when ready.');
       announce('Closing stock recorded.');
       render();
