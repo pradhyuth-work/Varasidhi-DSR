@@ -2472,6 +2472,7 @@
     if (!state.session || state.session.status === 'SETTLED') return;
     $('payment-form').reset();
     $('payment-label-date').value = todayIso();
+    $('payment-method-claims').hidden = state.role !== 'Admin';
     setHidden('payment-modal', false);
     window.setTimeout(() => $('payment-amount').focus(), 40);
   }
