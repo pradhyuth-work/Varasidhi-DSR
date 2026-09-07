@@ -132,6 +132,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .admin-tab:hover { color: var(--teal); }
 .admin-tab.active { color: var(--teal); border-bottom-color: var(--amber); }
 .admin-panel { animation: rise .2s ease-out; }
+.admin-tabs.sub-tabs { margin-bottom: 20px; }
+.admin-tabs.sub-tabs .admin-tab { padding: 9px 14px; font-size: 11px; }
 .admin-grid { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(260px, .8fr); gap: 15px; margin-bottom: 31px; }
 .admin-card { border: 1px solid var(--line); border-radius: 8px; padding: 22px; background: var(--paper-2); }
 .admin-card h2, .admin-section-heading h2 { margin: 7px 0 3px; font-size: 19px; letter-spacing: -.04em; }
@@ -316,24 +318,6 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 /* Net due highlight */
 .report-due-positive { color: var(--amber) !important; }
 
-/* Inventory report section divider */
-.report-section-divider {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 38px 0 22px;
-  color: #7c8a86;
-  font: 700 10px var(--mono);
-  letter-spacing: .13em;
-}
-.report-section-divider::before,
-.report-section-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--line-strong);
-}
-
 /* Stock level badges */
 .inv-stock-badge {
   display: inline-flex;
@@ -357,7 +341,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 .inv-entry-badge.purchase { background: #daeee4; color: #2b6245; }
 .inv-entry-badge.return   { background: #f8ecd9; color: #7a4a14; }
+.inv-entry-badge.dispatch { background: #fbe1e1; color: #8a2b2b; }
 .inv-return-qty { color: #ae7134 !important; font-weight: 700 !important; font-family: var(--mono); }
+.inv-dispatch-qty { color: #b23838 !important; font-weight: 700 !important; font-family: var(--mono); }
 
 /* ── Return to warehouse bar ────────────────────────────────────────── */
 .return-stock-bar {

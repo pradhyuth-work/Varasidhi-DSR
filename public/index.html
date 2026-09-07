@@ -393,133 +393,152 @@
             </section>
 
             <section class="admin-panel" data-admin-panel="reports" hidden>
-              <div class="report-filters">
-                <div class="report-filter-group">
-                  <label class="report-filter-field">
-                    <span>Buyer profile</span>
-                    <select id="report-profile-select"><option value="">All profiles</option></select>
-                  </label>
-                  <label class="report-filter-field">
-                    <span>From</span>
-                    <input id="report-from" type="date" />
-                  </label>
-                  <label class="report-filter-field">
-                    <span>To</span>
-                    <input id="report-to" type="date" />
-                  </label>
-                  <button class="button button-primary report-apply-btn" type="button" id="apply-report-filters">Apply</button>
-                  <button class="button button-quiet report-apply-btn" type="button" id="report-download-csv" disabled>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
-                  </button>
-                </div>
+              <div class="admin-tabs report-group-tabs" role="tablist" aria-label="Report groups">
+                <button class="admin-tab active" type="button" data-report-group="sales">Sales</button>
+                <button class="admin-tab" type="button" data-report-group="inventory">Inventory</button>
               </div>
 
-              <p id="report-loading" class="report-status-msg" hidden>Loading report…</p>
-              <p id="report-empty" class="report-status-msg" hidden>No settled sessions found for the selected filters.</p>
-
-              <div id="report-summary" class="report-summary-strip" hidden>
-                <div class="report-stat"><span>SETTLED SESSIONS</span><strong id="rep-session-count">—</strong></div>
-                <div class="report-stat"><span>TOTAL SALES</span><strong id="rep-total-sales">—</strong></div>
-                <div class="report-stat report-stat-payments"><span>PAYMENTS RECEIVED</span><strong id="rep-total-payments">—</strong></div>
-              </div>
-
-              <div id="report-products-section" hidden>
-                <div class="admin-section-heading">
-                  <div>
-                    <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT-WISE SALES</span></div>
-                    <h2>Sales by product</h2>
-                  </div>
-                </div>
-                <div class="table-shell">
-                  <table class="route-table admin-table">
-                    <thead><tr><th>PRODUCT</th><th>UNIT PRICE</th><th>SESSIONS</th><th>QTY SOLD</th><th>REVENUE</th><th>% OF TOTAL</th></tr></thead>
-                    <tbody id="report-products-body"></tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div id="report-buyer-section" hidden>
-                <div class="admin-section-heading report-buyer-heading">
-                  <div>
-                    <div class="section-kicker"><span class="section-number">02</span><span>BUYER BREAKDOWN</span></div>
-                    <h2>Sales by buyer</h2>
-                  </div>
-                </div>
-                <div class="table-shell">
-                  <table class="route-table admin-table">
-                    <thead><tr><th>BUYER</th><th>SESSIONS</th><th>TOTAL SALES</th><th>PAYMENTS RECEIVED</th><th>NET DUE</th></tr></thead>
-                    <tbody id="report-buyer-body"></tbody>
-                  </table>
-                </div>
-              </div>
-
-              <!-- ── Inventory Reports ─────────────────────────────── -->
-              <div class="report-section-divider">INVENTORY REPORTS</div>
-
-              <div class="report-filters">
-                <div class="report-filter-group">
-                  <label class="report-filter-field"><span>From</span><input id="inv-report-from" type="date" /></label>
-                  <label class="report-filter-field"><span>To</span><input id="inv-report-to" type="date" /></label>
-                  <button class="button button-primary report-apply-btn" type="button" id="apply-inv-filters">Apply</button>
-                  <button class="button button-quiet report-apply-btn" type="button" id="inv-bills-download-csv" disabled>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
-                  </button>
-                </div>
-              </div>
-
-              <p id="inv-loading" class="report-status-msg" hidden>Loading inventory data…</p>
-
-              <div id="inv-bills-section" hidden>
-                <div class="admin-section-heading">
-                  <div>
-                    <div class="section-kicker"><span class="section-number">01</span><span>INVENTORY LOG</span></div>
-                    <h2>Inventory movement log</h2>
-                  </div>
-                </div>
-                <div class="table-shell">
-                  <table class="route-table admin-table">
-                    <thead><tr><th>TYPE</th><th>REFERENCE</th><th>DATE</th><th>PRODUCT</th><th>QTY</th></tr></thead>
-                    <tbody id="inv-bills-body"></tbody>
-                  </table>
-                </div>
-                <div id="inv-bills-pagination"></div>
-              </div>
-
-              <div id="inv-stock-section" hidden>
-                <div class="admin-section-heading report-buyer-heading">
-                  <div>
-                    <div class="section-kicker"><span class="section-number">02</span><span>LIVE INVENTORY</span></div>
-                    <h2>Current warehouse stock</h2>
-                  </div>
-                  <button class="button button-quiet compact-button inv-dl-btn" type="button" id="inv-stock-download-csv">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
-                  </button>
-                </div>
-                <div class="table-shell">
-                  <table class="route-table admin-table">
-                    <thead><tr><th>PRODUCT</th><th>CURRENT STOCK</th><th>UNIT PRICE</th><th>STATUS</th></tr></thead>
-                    <tbody id="inv-stock-body"></tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div id="profile-stock-section" hidden>
-                <div class="admin-section-heading report-buyer-heading">
-                  <div>
-                    <div class="section-kicker"><span class="section-number">03</span><span>PROFILE STOCK</span></div>
-                    <h2>Profile-wise stock on hand</h2>
-                    <p class="section-desc">Closing stock from each buyer's latest route session — what they currently hold.</p>
-                  </div>
-                  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-                    <select class="filter-select" id="profile-stock-filter" aria-label="Filter by buyer profile">
-                      <option value="">All profiles</option>
-                    </select>
-                    <button class="button button-quiet compact-button inv-dl-btn" type="button" id="profile-stock-download-csv">
+              <div data-report-panel="sales">
+                <div class="report-filters">
+                  <div class="report-filter-group">
+                    <label class="report-filter-field">
+                      <span>Buyer profile</span>
+                      <select id="report-profile-select"><option value="">All profiles</option></select>
+                    </label>
+                    <label class="report-filter-field">
+                      <span>From</span>
+                      <input id="report-from" type="date" />
+                    </label>
+                    <label class="report-filter-field">
+                      <span>To</span>
+                      <input id="report-to" type="date" />
+                    </label>
+                    <button class="button button-primary report-apply-btn" type="button" id="apply-report-filters">Apply</button>
+                    <button class="button button-quiet report-apply-btn" type="button" id="report-download-csv" disabled>
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
                     </button>
                   </div>
                 </div>
-                <div id="profile-stock-body"></div>
+
+                <p id="report-loading" class="report-status-msg" hidden>Loading report…</p>
+                <p id="report-empty" class="report-status-msg" hidden>No settled sessions found for the selected filters.</p>
+
+                <div id="report-summary" class="report-summary-strip" hidden>
+                  <div class="report-stat"><span>SETTLED SESSIONS</span><strong id="rep-session-count">—</strong></div>
+                  <div class="report-stat"><span>TOTAL SALES</span><strong id="rep-total-sales">—</strong></div>
+                  <div class="report-stat report-stat-payments"><span>PAYMENTS RECEIVED</span><strong id="rep-total-payments">—</strong></div>
+                </div>
+
+                <div class="admin-tabs sub-tabs" role="tablist" aria-label="Sales report views">
+                  <button class="admin-tab active" type="button" data-sales-view="product">By product</button>
+                  <button class="admin-tab" type="button" data-sales-view="buyer">By buyer</button>
+                </div>
+
+                <div id="report-products-section" hidden>
+                  <div class="admin-section-heading">
+                    <div>
+                      <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT-WISE SALES</span></div>
+                      <h2>Sales by product</h2>
+                    </div>
+                  </div>
+                  <div class="table-shell">
+                    <table class="route-table admin-table">
+                      <thead><tr><th>PRODUCT</th><th>UNIT PRICE</th><th>SESSIONS</th><th>QTY SOLD</th><th>REVENUE</th><th>% OF TOTAL</th></tr></thead>
+                      <tbody id="report-products-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <p id="report-buyer-unavailable" class="report-status-msg" hidden>Buyer breakdown isn't shown when filtered to a single buyer — clear the buyer filter above to see it.</p>
+
+                <div id="report-buyer-section" hidden>
+                  <div class="admin-section-heading report-buyer-heading">
+                    <div>
+                      <div class="section-kicker"><span class="section-number">02</span><span>BUYER BREAKDOWN</span></div>
+                      <h2>Sales by buyer</h2>
+                    </div>
+                  </div>
+                  <div class="table-shell">
+                    <table class="route-table admin-table">
+                      <thead><tr><th>BUYER</th><th>SESSIONS</th><th>TOTAL SALES</th><th>PAYMENTS RECEIVED</th><th>NET DUE</th></tr></thead>
+                      <tbody id="report-buyer-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div data-report-panel="inventory" hidden>
+                <div class="report-filters">
+                  <div class="report-filter-group">
+                    <label class="report-filter-field"><span>From</span><input id="inv-report-from" type="date" /></label>
+                    <label class="report-filter-field"><span>To</span><input id="inv-report-to" type="date" /></label>
+                    <button class="button button-primary report-apply-btn" type="button" id="apply-inv-filters">Apply</button>
+                    <button class="button button-quiet report-apply-btn" type="button" id="inv-bills-download-csv" disabled>
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                    </button>
+                  </div>
+                </div>
+
+                <p id="inv-loading" class="report-status-msg" hidden>Loading inventory data…</p>
+
+                <div class="admin-tabs sub-tabs" role="tablist" aria-label="Inventory report views">
+                  <button class="admin-tab active" type="button" data-inv-view="movement">Movement log</button>
+                  <button class="admin-tab" type="button" data-inv-view="stock">Live inventory</button>
+                  <button class="admin-tab" type="button" data-inv-view="profile">Profile stock</button>
+                </div>
+
+                <div id="inv-bills-section" hidden>
+                  <div class="admin-section-heading">
+                    <div>
+                      <div class="section-kicker"><span class="section-number">01</span><span>INVENTORY LOG</span></div>
+                      <h2>Inventory movement log</h2>
+                    </div>
+                  </div>
+                  <div class="table-shell">
+                    <table class="route-table admin-table">
+                      <thead><tr><th>TYPE</th><th>REFERENCE</th><th>DATE</th><th>PRODUCT</th><th>QTY</th></tr></thead>
+                      <tbody id="inv-bills-body"></tbody>
+                    </table>
+                  </div>
+                  <div id="inv-bills-pagination"></div>
+                </div>
+
+                <div id="inv-stock-section" hidden>
+                  <div class="admin-section-heading report-buyer-heading">
+                    <div>
+                      <div class="section-kicker"><span class="section-number">02</span><span>LIVE INVENTORY</span></div>
+                      <h2>Current warehouse stock</h2>
+                    </div>
+                    <button class="button button-quiet compact-button inv-dl-btn" type="button" id="inv-stock-download-csv">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                    </button>
+                  </div>
+                  <div class="table-shell">
+                    <table class="route-table admin-table">
+                      <thead><tr><th>PRODUCT</th><th>CURRENT STOCK</th><th>UNIT PRICE</th><th>STATUS</th></tr></thead>
+                      <tbody id="inv-stock-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div id="profile-stock-section" hidden>
+                  <div class="admin-section-heading report-buyer-heading">
+                    <div>
+                      <div class="section-kicker"><span class="section-number">03</span><span>PROFILE STOCK</span></div>
+                      <h2>Profile-wise stock on hand</h2>
+                      <p class="section-desc">Closing stock from each buyer's latest route session — what they currently hold.</p>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+                      <select class="filter-select" id="profile-stock-filter" aria-label="Filter by buyer profile">
+                        <option value="">All profiles</option>
+                      </select>
+                      <button class="button button-quiet compact-button inv-dl-btn" type="button" id="profile-stock-download-csv">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                      </button>
+                    </div>
+                  </div>
+                  <div id="profile-stock-body"></div>
+                </div>
               </div>
             </section>
 
@@ -562,11 +581,6 @@
                    </table>
                  </div>
                  <div id="pr-days-pagination"></div>
-               </div>
-
-               <div id="pr-balances-section" hidden>
-                   </table>
-                 </div>
                </div>
 
                <div id="pr-balances-section" hidden>

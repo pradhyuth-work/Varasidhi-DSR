@@ -521,7 +521,7 @@ app.get("/api/products", async (_req, res) => {
 // Every table holding a products.id foreign key. All four are DEFERRABLE
 // INITIALLY DEFERRED (see db/schema.sql), so children can be repointed before
 // the parent PK moves; the constraints are validated at COMMIT.
-const PRODUCT_CHILD_TABLES = ["dsr_items", "purchases", "stock_returns", "stock_adjustments"];
+const PRODUCT_CHILD_TABLES = ["dsr_items", "purchases", "stock_returns", "stock_adjustments", "dispatches"];
 
 // Make room at startId by shifting that product and everything after it up by
 // one, carrying all child rows along.
@@ -1063,6 +1063,10 @@ app.post("/api/dsr/load-in", async (req, res) => {
           "UPDATE dsr_items SET loaded_stock = loaded_stock + ? WHERE id = ?",
           [additionalLoad, item.id],
         );
+        await tx.run(
+          "INSERT INTO dispatches (dsr_id, product_id, qty) VALUES (?, ?, ?)",
+          [sessionId, productId, additionalLoad],
+        );
       }
     });
     res.json(await getSessionPayload(sessionId));
@@ -1509,6 +1513,7 @@ app.get("/api/reports/inventory", async (req, res) => {
 
     const bills = await database.all(
       `SELECT 'purchase'       AS entry_type,
+              'in'             AS direction,
               pu.id,
               pu.supplier_ref  AS ref,
               pu.created_at,
@@ -1522,6 +1527,7 @@ app.get("/api/reports/inventory", async (req, res) => {
         UNION ALL
 
         SELECT 'return'        AS entry_type,
+               'in'            AS direction,
                sr.id,
                NULL            AS ref,
                sr.created_at,
@@ -1534,8 +1540,25 @@ app.get("/api/reports/inventory", async (req, res) => {
           JOIN profiles pr       ON pr.id = s.buyer_id
          WHERE sr.created_at::date >= ?::date AND sr.created_at::date <= ?::date
 
-        ORDER BY 4 DESC, 2 DESC`,
-      [from, to, from, to],
+        UNION ALL
+
+        -- Outward: stock dispatched to a route via a load-in save.
+        SELECT 'dispatch'      AS entry_type,
+               'out'           AS direction,
+               d.id,
+               NULL            AS ref,
+               d.created_at,
+               p.name          AS product_name,
+               d.qty           AS qty,
+               pr.name         AS buyer_name
+          FROM dispatches d
+          JOIN products p        ON p.id  = d.product_id
+          JOIN dsr_sessions s    ON s.id  = d.dsr_id
+          JOIN profiles pr       ON pr.id = s.buyer_id
+         WHERE d.created_at::date >= ?::date AND d.created_at::date <= ?::date
+
+        ORDER BY 5 DESC, 3 DESC`,
+      [from, to, from, to, from, to],
     );
 
     const inventory = await database.all(

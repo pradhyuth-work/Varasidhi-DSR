@@ -22,6 +22,9 @@
     closingDrafts: {},
     closingSaved: false,
     dsrTab: 'dispatch',
+    reportGroup: 'sales',
+    salesView: 'product',
+    invView: 'movement',
     reportData: null,
     reportLoading: false,
     inventoryData: null,
@@ -391,7 +394,21 @@
     document.querySelectorAll('[data-admin-tab]').forEach((tab) => {
       tab.classList.toggle('active', tab.dataset.adminTab === state.adminTab);
     });
-    if (state.adminTab === 'reports') { renderReport(); renderInventoryReport(); renderProfileStock(); }
+    if (state.adminTab === 'reports') {
+      document.querySelectorAll('[data-report-group]').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.reportGroup === state.reportGroup);
+      });
+      document.querySelectorAll('[data-report-panel]').forEach((panel) => {
+        panel.hidden = panel.dataset.reportPanel !== state.reportGroup;
+      });
+      document.querySelectorAll('[data-sales-view]').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.salesView === state.salesView);
+      });
+      document.querySelectorAll('[data-inv-view]').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.invView === state.invView);
+      });
+      renderReport(); renderInventoryReport(); renderProfileStock();
+    }
     if (state.adminTab === 'payments-report') { renderPaymentsReport(); }
   }
 
@@ -536,9 +553,11 @@
     const hasResults = Boolean(data) && data.summary.session_count > 0;
     setHidden('report-loading', !loading);
     setHidden('report-empty', loading || hasResults || !data);
+    const buyerViewBlocked = hasResults && data.filters.profileId !== null;
     setHidden('report-summary', !hasResults);
-    setHidden('report-products-section', !hasResults);
-    setHidden('report-buyer-section', !hasResults || data.filters.profileId !== null);
+    setHidden('report-products-section', !hasResults || state.salesView !== 'product');
+    setHidden('report-buyer-section', !hasResults || buyerViewBlocked || state.salesView !== 'buyer');
+    setHidden('report-buyer-unavailable', !buyerViewBlocked || state.salesView !== 'buyer');
     $('report-download-csv').disabled = !hasResults;
 
     if (!hasResults || loading) return;
@@ -705,8 +724,8 @@
 
     setHidden('inv-loading', !loading);
     const hasBills = Boolean(data) && data.bills.length > 0;
-    setHidden('inv-bills-section', loading || !hasBills);
-    setHidden('inv-stock-section', loading || !data);
+    setHidden('inv-bills-section', loading || !hasBills || state.invView !== 'movement');
+    setHidden('inv-stock-section', loading || !data || state.invView !== 'stock');
     $('inv-bills-download-csv').disabled = !hasBills;
 
     if (!data || loading) return;
@@ -719,14 +738,17 @@
     const invPage  = hasBills ? data.bills.slice(invStart, invStart + INV_PAGE_SIZE) : [];
     $('inv-bills-body').innerHTML = invPage.length
       ? invPage.map((b) => {
-          const isPurchase = b.entry_type === 'purchase';
-          const typeBadge = isPurchase
+          const typeBadge = b.entry_type === 'purchase'
             ? '<span class="inv-entry-badge purchase">PURCHASE</span>'
-            : '<span class="inv-entry-badge return">RETURN</span>';
-          const ref = isPurchase
+            : b.entry_type === 'return'
+            ? '<span class="inv-entry-badge return">RETURN</span>'
+            : '<span class="inv-entry-badge dispatch">LOAD-IN</span>';
+          const ref = b.entry_type === 'purchase'
             ? escapeHtml(b.ref || `#${b.id}`)
-            : `<span class="stock-quiet">From: ${escapeHtml(b.buyer_name)}</span>`;
-          const qty = isPurchase
+            : `<span class="stock-quiet">${b.direction === 'out' ? 'To' : 'From'}: ${escapeHtml(b.buyer_name)}</span>`;
+          const qty = b.direction === 'out'
+            ? `<span class="inv-dispatch-qty">−${integer(b.qty)}</span>`
+            : b.entry_type === 'purchase'
             ? `<span class="route-stock">+${integer(b.qty)}</span>`
             : `<span class="inv-return-qty">+${integer(b.qty)}</span>`;
           return `<tr>
@@ -788,15 +810,17 @@
       `${q('Inventory Movement Log')}`,
       `${q('Period')},${q(`${filters.from} to ${filters.to}`)}`,
       '',
-      [q('Type'), q('Reference / Buyer'), q('Date'), q('Product'), q('Quantity')].join(','),
+      [q('Type'), q('Direction'), q('Reference / Buyer'), q('Date'), q('Product'), q('Quantity')].join(','),
       ...bills.map((b) => {
         const isPurchase = b.entry_type === 'purchase';
+        const label = isPurchase ? 'Purchase' : b.entry_type === 'return' ? 'Return' : 'Load-in';
         return [
-          q(isPurchase ? 'Purchase' : 'Return'),
+          q(label),
+          q(b.direction === 'out' ? 'Outward' : 'Inward'),
           q(isPurchase ? (b.ref || `#${b.id}`) : b.buyer_name),
           q(dateLabel(b.created_at)),
           q(b.product_name),
-          q(b.qty),
+          q(b.direction === 'out' ? -b.qty : b.qty),
         ].join(',');
       }),
     ].join('\n');
@@ -826,7 +850,7 @@
     if (!$('profile-stock-body')) return;
     const loading = state.profileStockLoading;
     const data = state.profileStockData;
-    setHidden('profile-stock-section', loading || !data);
+    setHidden('profile-stock-section', loading || !data || state.invView !== 'profile');
     if (!data || loading) return;
 
     const { profiles } = data;
@@ -2837,6 +2861,18 @@
         if (!$('pr-to').value)   $('pr-to').value   = todayIso();
         if (!state.paymentsReportData && !state.paymentsReportLoading) loadPaymentsReport();
       }
+    }));
+    document.querySelectorAll('[data-report-group]').forEach((tab) => tab.addEventListener('click', () => {
+      state.reportGroup = tab.dataset.reportGroup;
+      renderAdmin();
+    }));
+    document.querySelectorAll('[data-sales-view]').forEach((tab) => tab.addEventListener('click', () => {
+      state.salesView = tab.dataset.salesView;
+      renderAdmin();
+    }));
+    document.querySelectorAll('[data-inv-view]').forEach((tab) => tab.addEventListener('click', () => {
+      state.invView = tab.dataset.invView;
+      renderAdmin();
     }));
     $('product-form').addEventListener('submit', submitProduct);
     $('profile-form').addEventListener('submit', submitProfile);
