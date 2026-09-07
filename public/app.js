@@ -661,7 +661,7 @@
       return;
     }
     try {
-      const canvas = await html2canvas(el, { backgroundColor: '#fbfbf8', scale: 2 });
+      const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 });
       const link = document.createElement('a');
       link.href = canvas.toDataURL('image/png');
       link.download = filename;
