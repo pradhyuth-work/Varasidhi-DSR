@@ -780,9 +780,29 @@ app.post("/api/products/bulk-rate", async (req, res) => {
   }
 });
 
-// Manual warehouse-stock correction for a discrepancy. mode "set" writes an
-// absolute count; mode "adjust" applies a signed delta. Every change is logged
-// to stock_adjustments with a reason.
+// Shared by both the single-product stock PATCH and the CSV bulk-stock
+// endpoint below. mode "set" writes an absolute count; mode "adjust" applies
+// a signed delta. Every change is logged to stock_adjustments with a reason.
+async function applyStockAdjustment(tx, productId, mode, rawValue, reason) {
+  const product = await tx.get(
+    "SELECT id, warehouse_stock FROM products WHERE id = ?",
+    [productId],
+  );
+  if (!product) return { notFound: true };
+  const oldStock = product.warehouse_stock;
+  const newStock = mode === "set" ? rawValue : oldStock + rawValue;
+  if (newStock < 0) {
+    return { invalid: "Resulting stock cannot be negative." };
+  }
+  await tx.run("UPDATE products SET warehouse_stock = ? WHERE id = ?", [newStock, productId]);
+  await tx.run(
+    `INSERT INTO stock_adjustments (product_id, old_stock, new_stock, delta, mode, reason)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [productId, oldStock, newStock, newStock - oldStock, mode, reason],
+  );
+  return { oldStock, newStock };
+}
+
 app.patch("/api/products/:id/stock", async (req, res) => {
   if (!isAdmin(req)) return fail(res, 403, "Only Admin can adjust warehouse stock.");
   const productId = positiveInteger(req.params.id);
@@ -793,25 +813,7 @@ app.patch("/api/products/:id/stock", async (req, res) => {
     return fail(res, 400, "A valid product and whole-number value are required.");
   }
   try {
-    const result = await withTransaction(async (tx) => {
-      const product = await tx.get(
-        "SELECT id, warehouse_stock FROM products WHERE id = ?",
-        [productId],
-      );
-      if (!product) return { notFound: true };
-      const oldStock = product.warehouse_stock;
-      const newStock = mode === "set" ? rawValue : oldStock + rawValue;
-      if (newStock < 0) {
-        return { invalid: "Resulting stock cannot be negative." };
-      }
-      await tx.run("UPDATE products SET warehouse_stock = ? WHERE id = ?", [newStock, productId]);
-      await tx.run(
-        `INSERT INTO stock_adjustments (product_id, old_stock, new_stock, delta, mode, reason)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [productId, oldStock, newStock, newStock - oldStock, mode, reason],
-      );
-      return { oldStock, newStock };
-    });
+    const result = await withTransaction((tx) => applyStockAdjustment(tx, productId, mode, rawValue, reason));
     if (result.notFound) return fail(res, 404, "Product not found.");
     if (result.invalid) return fail(res, 400, result.invalid);
     res.json(await database.get(
@@ -821,6 +823,58 @@ app.patch("/api/products/:id/stock", async (req, res) => {
   } catch (error) {
     console.error("Failed to adjust stock", error);
     fail(res, 500, "Unable to adjust warehouse stock.");
+  }
+});
+
+const MAX_STOCK_LINES = 50;
+
+// Bulk warehouse-stock correction (CSV upload from Rate & product master).
+// Every line is applied as an absolute "set" count in one transaction, reusing
+// the same audit-trail logic as the single-product PATCH above. Lines always
+// carry an absolute count rather than a ± delta so stacking rows in one file
+// can't produce a surprising cumulative result.
+app.post("/api/products/bulk-stock", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can adjust warehouse stock.");
+  const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+  if (rawLines.length === 0) return fail(res, 400, "At least one stock line is required.");
+  if (rawLines.length > MAX_STOCK_LINES) {
+    return fail(res, 400, `A stock update can hold at most ${MAX_STOCK_LINES} lines.`);
+  }
+  const lines = [];
+  for (const [index, line] of rawLines.entries()) {
+    const productId = positiveInteger(line?.productId);
+    const value = Number(line?.value);
+    const reason = String(line?.reason || "").trim().slice(0, 200);
+    if (productId === null || productId < 1 || !Number.isInteger(value) || value < 0) {
+      return fail(res, 400, rawLines.length === 1
+        ? "A valid product and a non-negative whole-number stock count are required."
+        : `Line ${index + 1}: choose a product and enter a non-negative whole-number stock count.`);
+    }
+    lines.push({ productId, value, reason });
+  }
+  try {
+    const updatedIds = await withTransaction(async (tx) => {
+      const ids = [];
+      for (const [index, line] of lines.entries()) {
+        const result = await applyStockAdjustment(tx, line.productId, "set", line.value, line.reason);
+        if (result.notFound) {
+          throw new Error(lines.length === 1 ? "Product not found." : `Line ${index + 1}: product not found.`);
+        }
+        if (result.invalid) {
+          throw new Error(lines.length === 1 ? result.invalid : `Line ${index + 1}: ${result.invalid}`);
+        }
+        ids.push(line.productId);
+      }
+      return ids;
+    });
+    const products = await database.all(
+      "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ANY(?::int[]) ORDER BY id",
+      [updatedIds],
+    );
+    res.json({ updatedCount: updatedIds.length, products });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to update warehouse stock.";
+    fail(res, /not found/i.test(message) ? 404 : 400, message);
   }
 });
 

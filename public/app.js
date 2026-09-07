@@ -2278,6 +2278,172 @@
     }
   }
 
+  // ---- CSV bulk warehouse-stock correction ----------------------------------
+  // Same narrow-template pattern as the rate CSV above: one row per product
+  // with its current stock for reference and a New Stock column the admin
+  // fills in only for products that need correcting. Every row is applied as
+  // an absolute count (never a ± delta), so posts to /api/products/bulk-stock
+  // can't produce a surprising cumulative result from stacked rows.
+  const MAX_STOCK_LINES = 50;
+
+  function downloadStockTemplateCsv() {
+    if (!state.products.length) return toast('Load the product list first.', 'error');
+    const csv = [
+      [csvField('Product ID'), csvField('Product Name'), csvField('Current Stock'), csvField('New Stock'), csvField('Reason')].join(','),
+      ...state.products.map((p) => [csvField(p.id), csvField(p.name), csvField(p.warehouse_stock), csvField(''), csvField('')].join(',')),
+    ].join('\n');
+    downloadCsvBlob(csv, `stock-update-template-${todayIso()}.csv`);
+    toast('Template downloaded — fill in new stock counts and upload it back here.');
+  }
+
+  // Validates an uploaded template against the CURRENT product list. Rows left
+  // blank in New Stock, or whose New Stock already matches the current count,
+  // are skipped (not applied, not an error) — only rows that actually change
+  // something come back in `lines`.
+  function parseStockCsv(text) {
+    const rows = parseCsv(text);
+    if (!rows.length) throw new Error('No rows found in this file.');
+    const header = (rows[0] || []).map((c) => c.trim().toLowerCase());
+    if (header[0] !== 'product id' || header[1] !== 'product name' || header[2] !== 'current stock' || header[3] !== 'new stock') {
+      throw new Error('This doesn’t look like the stock template — expected a "Product ID, Product Name, Current Stock, New Stock" header row. Download a fresh template and fill that in.');
+    }
+    const dataRows = rows.slice(1);
+    if (!dataRows.length) throw new Error('No product rows found in this file.');
+
+    const byId = new Map(state.products.map((p) => [Number(p.id), p]));
+    const lines = [];
+    const warnings = [];
+    const seenCount = new Map();
+    let skippedUnchanged = 0;
+    for (const [rowIdx, r] of dataRows.entries()) {
+      const rawId = (r[0] || '').trim();
+      const rawName = (r[1] || '').trim();
+      const rawNewStock = (r[3] || '').trim();
+      const rawReason = (r[4] || '').trim();
+      if (!rawId && !rawNewStock) continue;
+      const productId = Number(rawId);
+      if (!Number.isInteger(productId) || productId < 1) {
+        throw new Error(`Row ${rowIdx + 1}: "${rawId}" is not a valid Product ID.`);
+      }
+      if (rawNewStock === '') continue; // nothing to change on this row
+      const product = byId.get(productId);
+      if (!product) {
+        throw new Error(`Row ${rowIdx + 1}: Product ID ${productId} was not found in the current product list. It may have been deleted or renumbered since this file was downloaded — download a fresh template and re-enter this line.`);
+      }
+      if (rawName && product.name.trim().toLowerCase() !== rawName.toLowerCase()) {
+        warnings.push(`Row ${rowIdx + 1}: Product ID ${productId} is now "${product.name}", but the file says "${rawName}" — it may have been renamed or renumbered since download. Double-check this is the right product.`);
+      }
+      const newStock = Number(rawNewStock);
+      if (!Number.isInteger(newStock) || newStock < 0) {
+        throw new Error(`Row ${rowIdx + 1} (Product ${productId}): New Stock must be a non-negative whole number — got "${rawNewStock}".`);
+      }
+      if (newStock === Number(product.warehouse_stock)) {
+        skippedUnchanged++;
+        continue;
+      }
+      lines.push({ productId, productName: product.name, oldStock: Number(product.warehouse_stock), newStock, reason: rawReason });
+      seenCount.set(productId, (seenCount.get(productId) || 0) + 1);
+    }
+    if (!lines.length) {
+      throw new Error(skippedUnchanged
+        ? 'No stock changes to apply — every filled-in row already matches the current count.'
+        : 'No new stock counts were entered — fill in the New Stock column for at least one product.');
+    }
+    if (lines.length > MAX_STOCK_LINES) {
+      throw new Error(`A stock update can hold at most ${MAX_STOCK_LINES} lines — this file has ${lines.length}. Split it across more than one upload.`);
+    }
+    for (const [pid, count] of seenCount) {
+      if (count > 1) warnings.push(`Product ID ${pid} appears on more than one row — the last one in the file wins.`);
+    }
+    if (skippedUnchanged) {
+      warnings.push(`${skippedUnchanged} row(s) already matched the current stock count and were left unchanged.`);
+    }
+    return { lines, warnings };
+  }
+
+  let csvStockParsed = null;
+
+  function resetCsvStockModal() {
+    csvStockParsed = null;
+    if ($('csv-stock-upload-input')) $('csv-stock-upload-input').value = '';
+    setHidden('csv-stock-parse-error', true);
+    setHidden('csv-stock-preview', true);
+    $('csv-stock-preview-body').innerHTML = '';
+    $('csv-stock-preview-warnings').innerHTML = '';
+    $('confirm-csv-stock').disabled = true;
+  }
+
+  function openCsvStockModal() {
+    resetCsvStockModal();
+    setHidden('csv-stock-modal', false);
+  }
+
+  function closeCsvStockModal() {
+    setHidden('csv-stock-modal', true);
+    resetCsvStockModal();
+  }
+
+  function showCsvStockParseError(message) {
+    $('csv-stock-parse-error').textContent = message;
+    setHidden('csv-stock-parse-error', false);
+    setHidden('csv-stock-preview', true);
+    $('confirm-csv-stock').disabled = true;
+    csvStockParsed = null;
+  }
+
+  function showCsvStockSubmitError(message) {
+    $('csv-stock-parse-error').textContent = message;
+    setHidden('csv-stock-parse-error', false);
+  }
+
+  function renderCsvStockPreview(parsed) {
+    $('csv-stock-preview-summary').textContent = `${parsed.lines.length} stock change(s).`;
+    $('csv-stock-preview-body').innerHTML = parsed.lines.map((line) =>
+      `<tr><td>${escapeHtml(line.productName)}</td><td>${integer(line.oldStock)}</td><td>${integer(line.newStock)}</td><td>${escapeHtml(line.reason || '—')}</td></tr>`,
+    ).join('');
+    const warnBox = $('csv-stock-preview-warnings');
+    warnBox.innerHTML = parsed.warnings.length
+      ? `<div class="csv-warning-box"><b>Check before applying:</b><ul>${parsed.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul></div>`
+      : '';
+    setHidden('csv-stock-preview', false);
+    setHidden('csv-stock-parse-error', true);
+    $('confirm-csv-stock').disabled = false;
+  }
+
+  function handleCsvStockFileSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        csvStockParsed = parseStockCsv(String(reader.result || ''));
+        renderCsvStockPreview(csvStockParsed);
+      } catch (error) {
+        showCsvStockParseError(error.message);
+      }
+    };
+    reader.onerror = () => showCsvStockParseError('Could not read this file. Re-save it as CSV and try again.');
+    reader.readAsText(file);
+  }
+
+  async function confirmCsvStock() {
+    if (!csvStockParsed || !csvStockParsed.lines.length) return;
+    const btn = $('confirm-csv-stock');
+    btn.disabled = true;
+    try {
+      const payload = { lines: csvStockParsed.lines.map(({ productId, newStock, reason }) => ({ productId, value: newStock, reason })) };
+      const result = await request('/api/products/bulk-stock', adminOptions({ method: 'POST', body: JSON.stringify(payload) }));
+      closeCsvStockModal();
+      await loadAdminData();
+      if (state.selectedBuyerId) await loadSession(state.selectedBuyerId);
+      adminMessage(`${integer(result.updatedCount)} product stock count(s) updated.`);
+      toast('Warehouse stock updated from CSV.');
+    } catch (error) {
+      showCsvStockSubmitError(error.message);
+      btn.disabled = false;
+    }
+  }
+
   // ---- CSV bulk buyer onboarding -------------------------------------------
   // Wide format: one row per buyer, one column per product (opening balance
   // and product quantities become that buyer's day-zero stock on hand). Posts
@@ -2898,6 +3064,13 @@
     $('csv-rate-download-template').addEventListener('click', downloadRateTemplateCsv);
     $('csv-rate-upload-input').addEventListener('change', handleCsvRateFileSelected);
     $('confirm-csv-rate').addEventListener('click', confirmCsvRate);
+    $('open-csv-stock').addEventListener('click', openCsvStockModal);
+    $('close-csv-stock').addEventListener('click', closeCsvStockModal);
+    $('cancel-csv-stock').addEventListener('click', closeCsvStockModal);
+    $('csv-stock-modal').addEventListener('click', (event) => { if (event.target === $('csv-stock-modal')) closeCsvStockModal(); });
+    $('csv-stock-download-template').addEventListener('click', downloadStockTemplateCsv);
+    $('csv-stock-upload-input').addEventListener('change', handleCsvStockFileSelected);
+    $('confirm-csv-stock').addEventListener('click', confirmCsvStock);
     $('open-bulk-profile').addEventListener('click', openBulkProfileModal);
     $('close-bulk-profile').addEventListener('click', closeBulkProfileModal);
     $('cancel-bulk-profile').addEventListener('click', closeBulkProfileModal);
