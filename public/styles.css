@@ -506,6 +506,19 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 #perf-snapshot-area.snapshot-capture .pct-bar { min-width: 70px; }
 #perf-snapshot-area.snapshot-capture .perf-rank { width: 18px; height: 18px; }
 
+/* Same treatment for the settlement snapshot — tighter spacing while
+   html2canvas captures it, untouched in the live UI. */
+#settle-detail-panel.snapshot-capture .admin-section-heading { margin-bottom: 8px; }
+#settle-detail-panel.snapshot-capture .admin-section-heading h2 { margin: 3px 0 2px; font-size: 16px; }
+#settle-detail-panel.snapshot-capture .settle-section-gap { margin-top: 14px; }
+#settle-detail-panel.snapshot-capture .section-kicker { gap: 6px; }
+#settle-detail-panel.snapshot-capture .route-table th { height: 28px; padding: 0 10px; }
+#settle-detail-panel.snapshot-capture .route-table td,
+#settle-detail-panel.snapshot-capture .admin-table td { height: 38px; padding: 4px 10px; }
+#settle-detail-panel.snapshot-capture .settle-balance-strip { margin-top: 10px; }
+#settle-detail-panel.snapshot-capture .settle-bal-stat { padding: 8px 12px; gap: 2px; }
+#settle-detail-panel.snapshot-capture .settle-bal-stat strong { font-size: 14px; }
+
 /* ── Settlement Report ─────────────────────────────────── */
 .settle-layout {
   display: grid;
@@ -597,6 +610,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .settle-pivot tr.pivot-highlight .pivot-total {
   background: #0e2f33;
 }
+
+.settle-section-gap { margin-top: 28px; }
 
 /* Balance strip */
 .settle-balance-strip { margin-top: 16px; }

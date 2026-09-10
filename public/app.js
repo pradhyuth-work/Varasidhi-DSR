@@ -1163,10 +1163,16 @@
     if (!state.settlementData?.sessions?.length) return;
     const session = state.settlementData.sessions[state.selectedSettlementIdx];
     if (!session) return;
-    await downloadElementSnapshot(
-      $('settle-detail-panel'),
-      `settlement-${session.buyer_name.replace(/\s+/g, '-')}-${session.date}.png`,
-    );
+    const panel = $('settle-detail-panel');
+    panel.classList.add('snapshot-capture');
+    try {
+      await downloadElementSnapshot(
+        panel,
+        `settlement-${session.buyer_name.replace(/\s+/g, '-')}-${session.date}.png`,
+      );
+    } finally {
+      panel.classList.remove('snapshot-capture');
+    }
     toast('Settlement snapshot downloaded.');
   }
 
