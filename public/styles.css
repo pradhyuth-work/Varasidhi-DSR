@@ -486,6 +486,26 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   .profile-stock-total { text-align: left; }
   .perf-bar-cell { flex-direction: row-reverse; justify-content: flex-start; }
 }
+
+/* Tighter spacing applied only while html2canvas captures the performance
+   snapshot (class toggled on/off around the capture) — keeps the exported
+   PNG short enough to view on a phone without shrinking the live UI. */
+#perf-snapshot-area.snapshot-capture .report-summary-strip { margin-bottom: 14px; }
+#perf-snapshot-area.snapshot-capture .report-stat { padding: 10px 14px; }
+#perf-snapshot-area.snapshot-capture .report-stat span { margin-bottom: 3px; }
+#perf-snapshot-area.snapshot-capture .report-stat strong { font-size: 16px; }
+#perf-snapshot-area.snapshot-capture .admin-section-heading { margin-bottom: 8px; }
+#perf-snapshot-area.snapshot-capture .admin-section-heading h2 { margin: 3px 0 2px; font-size: 16px; }
+#perf-snapshot-area.snapshot-capture .section-kicker { gap: 6px; }
+#perf-snapshot-area.snapshot-capture .route-table th { height: 28px; padding: 0 10px; }
+#perf-snapshot-area.snapshot-capture .route-table td,
+#perf-snapshot-area.snapshot-capture .admin-table td { height: 38px; padding: 4px 10px; }
+#perf-snapshot-area.snapshot-capture .perf-profile-products-card { margin: 6px 0; }
+#perf-snapshot-area.snapshot-capture .perf-profile-products-title { padding: 7px 12px; font-size: 11px; }
+#perf-snapshot-area.snapshot-capture .buyer-avatar { width: 24px; height: 24px; font-size: 9px; }
+#perf-snapshot-area.snapshot-capture .pct-bar { min-width: 70px; }
+#perf-snapshot-area.snapshot-capture .perf-rank { width: 18px; height: 18px; }
+
 /* ── Settlement Report ─────────────────────────────────── */
 .settle-layout {
   display: grid;

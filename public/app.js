@@ -1338,10 +1338,16 @@
     const profileName = filters.profileId !== null
       ? (state.profiles?.find((p) => String(p.id) === String(filters.profileId))?.name ?? `profile-${filters.profileId}`)
       : 'all-profiles';
-    await downloadElementSnapshot(
-      $('perf-snapshot-area'),
-      `performance-${profileName.replace(/\s+/g, '-')}-${filters.from}-to-${filters.to}.png`,
-    );
+    const area = $('perf-snapshot-area');
+    area.classList.add('snapshot-capture');
+    try {
+      await downloadElementSnapshot(
+        area,
+        `performance-${profileName.replace(/\s+/g, '-')}-${filters.from}-to-${filters.to}.png`,
+      );
+    } finally {
+      area.classList.remove('snapshot-capture');
+    }
     toast('Performance snapshot downloaded.');
   }
 
