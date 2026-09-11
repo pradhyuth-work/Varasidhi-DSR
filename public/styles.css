@@ -698,6 +698,21 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   box-shadow: 2px 0 6px -2px rgba(20,53,57,.10);
 }
 
+/* ── Closing sheet accent background — only this section, not the whole app ── */
+#closing-section {
+  background: #ff7f7f;
+  border-radius: 10px;
+  padding: 18px;
+}
+#closing-section .table-shell,
+#closing-section .route-table th,
+#closing-section .route-table td,
+#closing-section .route-table tbody tr:hover td,
+#closing-section #closing-table th:first-child,
+#closing-section #closing-table td:first-child {
+  background: #ff7f7f;
+}
+
 /* ── Payments report — day header rows ─────────────────── */
 .pr-day-header td { background: var(--surface-sunken); border-top: 2px solid var(--line); }
 .pr-day-label { color: var(--teal-deep) !important; font: 700 11px var(--mono) !important; letter-spacing: .06em; text-align: left !important; }
