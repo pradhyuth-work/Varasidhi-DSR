@@ -1652,16 +1652,25 @@ app.get("/api/reports/performance", async (req, res) => {
     if (profileId !== null) {
       // Product-level breakdown for selected profile
       rows = await database.all(
+        // Items must be filtered to this buyer/date/status inside the join
+        // itself (a subquery), not just in the dsr_sessions ON clause — a
+        // LEFT JOIN filter in the ON clause only nulls out unmatched
+        // sessions, it doesn't drop the dsr_items row, so every buyer's
+        // all-time sales of a product were being summed in instead of just
+        // this profile's selected range.
         `SELECT p.id AS product_id, p.name AS product_name,
-                COALESCE(SUM(i.qty_sold), 0)   AS total_qty,
-                COALESCE(SUM(i.line_total), 0) AS total_revenue,
-                COUNT(DISTINCT CASE WHEN i.qty_sold > 0 THEN s.id END) AS session_count
+                COALESCE(SUM(x.qty_sold), 0)   AS total_qty,
+                COALESCE(SUM(x.line_total), 0) AS total_revenue,
+                COUNT(DISTINCT CASE WHEN x.qty_sold > 0 THEN x.dsr_id END) AS session_count
            FROM products p
-           LEFT JOIN dsr_items i ON i.product_id = p.id
-           LEFT JOIN dsr_sessions s ON s.id = i.dsr_id
-             AND s.status = 'SETTLED'
-             AND s.date >= ? AND s.date <= ?
-             AND s.buyer_id = ?
+           LEFT JOIN (
+             SELECT i.product_id, i.dsr_id, i.qty_sold, i.line_total
+               FROM dsr_items i
+               JOIN dsr_sessions s ON s.id = i.dsr_id
+              WHERE s.status = 'SETTLED'
+                AND s.date >= ? AND s.date <= ?
+                AND s.buyer_id = ?
+           ) x ON x.product_id = p.id
           GROUP BY p.id, p.name
           ORDER BY total_qty DESC, p.id`,
         [from, to, profileId],
