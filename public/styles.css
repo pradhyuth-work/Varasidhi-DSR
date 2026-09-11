@@ -700,7 +700,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 
 /* ── Closing sheet accent background — only this section, not the whole app ── */
 #closing-section {
-  background: #ff7f7f;
+  background: #ffb3b3;
   border-radius: 10px;
   padding: 18px;
 }
@@ -710,7 +710,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 #closing-section .route-table tbody tr:hover td,
 #closing-section #closing-table th:first-child,
 #closing-section #closing-table td:first-child {
-  background: #ff7f7f;
+  background: #ffb3b3;
 }
 
 /* ── Payments report — day header rows ─────────────────── */
