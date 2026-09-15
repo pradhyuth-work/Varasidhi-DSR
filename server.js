@@ -26,6 +26,10 @@ const today = () => IST_DATE_FORMAT.format(new Date());
 // Admin status is derived from the verified session cookie (set on the request
 // by the auth middleware below), NOT from a client-supplied header.
 const isAdmin = (req) => req.userRole === "admin";
+// Audit-trail attribution. The app has two shared role passwords, not
+// individual accounts, so "who" means the role from the verified session
+// cookie — never a client-supplied value.
+const actorLabel = (req) => (req.userRole === "admin" ? "Admin" : "Store Manager");
 
 function fail(res, status, error) {
   return res.status(status).json({ error });
@@ -96,7 +100,8 @@ function clearSessionCookie(res) {
 async function getSessionPayload(sessionId) {
   const session = await database.get(
     `SELECT id, buyer_id, date, prev_balance, total_sales, total_payments,
-            updated_balance, status
+            updated_balance, status,
+            created_by, created_at, updated_by, updated_at
        FROM dsr_sessions WHERE id = ?`,
     [sessionId],
   );
@@ -105,7 +110,8 @@ async function getSessionPayload(sessionId) {
   const items = await database.all(
     `SELECT i.id, i.dsr_id, i.product_id, p.name AS product_name,
             p.warehouse_stock, i.opening_stock, i.loaded_stock,
-            i.closing_stock, i.qty_sold, i.unit_price, i.line_total
+            i.closing_stock, i.qty_sold, i.unit_price, i.line_total,
+            i.created_by, i.created_at, i.updated_by, i.updated_at
        FROM dsr_items i
        JOIN products p ON p.id = i.product_id
       WHERE i.dsr_id = ?
@@ -113,14 +119,27 @@ async function getSessionPayload(sessionId) {
     [sessionId],
   );
   const payments = await database.all(
-    `SELECT id, dsr_id, method, label_info, amount, created_at
+    `SELECT id, dsr_id, method, label_info, amount, created_at, created_by
        FROM payments WHERE dsr_id = ? ORDER BY created_at DESC, id DESC`,
     [sessionId],
   );
-  return { session, items, payments };
+  // Load-in attribution is read from `dispatches`, not dsr_items.updated_by:
+  // closing also updates dsr_items (different columns), which would otherwise
+  // overwrite "who did the load-in" with "who did the closing" on the same row.
+  // dispatches is append-only and load-in-specific, so its most recent row is
+  // an unambiguous "who last added stock to this route, and when".
+  const lastDispatch = await database.get(
+    `SELECT created_by, created_at FROM dispatches
+      WHERE dsr_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
+    [sessionId],
+  );
+  return { session, items, payments, lastDispatch: lastDispatch || null };
 }
 
-async function getOrCreateActiveSession(buyerId) {
+// `actor` is the role label to stamp on a session/items row THIS call has to
+// create (null when called from a read-only context, e.g. just viewing a
+// buyer — nothing is attributed to a page view, only to an actual save).
+async function getOrCreateActiveSession(buyerId, actor = null) {
   let session = await database.get(
     `SELECT id FROM dsr_sessions
       WHERE buyer_id = ? AND status = 'IN_PROGRESS'
@@ -135,9 +154,9 @@ async function getOrCreateActiveSession(buyerId) {
     if (!profile) return null;
     const created = await database.run(
       `INSERT INTO dsr_sessions
-        (buyer_id, date, prev_balance, total_sales, total_payments, updated_balance, status)
-       VALUES (?, ?, ?, 0, 0, ?, 'IN_PROGRESS')`,
-      [buyerId, today(), profile.current_balance, profile.current_balance],
+        (buyer_id, date, prev_balance, total_sales, total_payments, updated_balance, status, created_by)
+       VALUES (?, ?, ?, 0, 0, ?, 'IN_PROGRESS', ?)`,
+      [buyerId, today(), profile.current_balance, profile.current_balance, actor],
     );
     const products = await database.all(
       "SELECT id, unit_price FROM products ORDER BY id",
@@ -165,9 +184,9 @@ async function getOrCreateActiveSession(buyerId) {
       await database.run(
         `INSERT INTO dsr_items
           (dsr_id, product_id, opening_stock, loaded_stock, closing_stock,
-           qty_sold, unit_price, line_total)
-         VALUES (?, ?, ?, 0, ?, 0, ?, 0)`,
-        [created.id, product.id, openingStock, openingStock, product.unit_price],
+           qty_sold, unit_price, line_total, created_by)
+         VALUES (?, ?, ?, 0, ?, 0, ?, 0, ?)`,
+        [created.id, product.id, openingStock, openingStock, product.unit_price, actor],
       );
     }
     session = { id: created.id };
@@ -216,7 +235,9 @@ app.get("/api/profiles", async (_req, res) => {
     // should still appear (reports, history) and where they should not (the
     // day-to-day buyer picker).
     const profiles = await database.all(
-      "SELECT id, name, current_balance, hidden FROM profiles ORDER BY id",
+      `SELECT id, name, current_balance, hidden,
+              created_by, created_at, updated_by, updated_at
+         FROM profiles ORDER BY id`,
     );
     res.json({ profiles });
   } catch (error) {
@@ -235,11 +256,11 @@ app.post("/api/profiles", async (req, res) => {
   }
   try {
     const created = await database.run(
-      "INSERT INTO profiles (name, current_balance) VALUES (?, ?)",
-      [name, currentBalance],
+      "INSERT INTO profiles (name, current_balance, created_by) VALUES (?, ?, ?)",
+      [name, currentBalance, actorLabel(req)],
     );
     res.status(201).json(await database.get(
-      "SELECT id, name, current_balance, hidden FROM profiles WHERE id = ?",
+      "SELECT id, name, current_balance, hidden, created_by, created_at, updated_by, updated_at FROM profiles WHERE id = ?",
       [created.id],
     ));
   } catch (error) {
@@ -297,6 +318,7 @@ app.post("/api/profiles/bulk", async (req, res) => {
   }
 
   try {
+    const actor = actorLabel(req);
     const createdProfiles = await withTransaction(async (tx) => {
       const products = await tx.all("SELECT id, unit_price FROM products ORDER BY id");
       const productIds = new Set(products.map((p) => p.id));
@@ -308,23 +330,23 @@ app.post("/api/profiles/bulk", async (req, res) => {
           }
         }
         const profileRow = await tx.run(
-          "INSERT INTO profiles (name, current_balance) VALUES (?, ?)",
-          [entry.name, entry.currentBalance],
+          "INSERT INTO profiles (name, current_balance, created_by) VALUES (?, ?, ?)",
+          [entry.name, entry.currentBalance, actor],
         );
         const sessionRow = await tx.run(
           `INSERT INTO dsr_sessions
-            (buyer_id, date, prev_balance, total_sales, total_payments, updated_balance, status)
-           VALUES (?, ?, ?, 0, 0, ?, 'SETTLED')`,
-          [profileRow.id, today(), entry.currentBalance, entry.currentBalance],
+            (buyer_id, date, prev_balance, total_sales, total_payments, updated_balance, status, created_by)
+           VALUES (?, ?, ?, 0, 0, ?, 'SETTLED', ?)`,
+          [profileRow.id, today(), entry.currentBalance, entry.currentBalance, actor],
         );
         for (const product of products) {
           const qty = entry.stockMap.get(product.id) || 0;
           await tx.run(
             `INSERT INTO dsr_items
               (dsr_id, product_id, opening_stock, loaded_stock, closing_stock,
-               qty_sold, unit_price, line_total)
-             VALUES (?, ?, ?, ?, ?, 0, ?, 0)`,
-            [sessionRow.id, product.id, qty, qty, qty, product.unit_price],
+               qty_sold, unit_price, line_total, created_by)
+             VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?)`,
+            [sessionRow.id, product.id, qty, qty, qty, product.unit_price, actor],
           );
         }
         results.push({ id: profileRow.id, name: entry.name, current_balance: entry.currentBalance });
@@ -348,12 +370,12 @@ app.patch("/api/profiles/:id/name", async (req, res) => {
   if (!name || name.length > 120) return fail(res, 400, "A buyer name is required.");
   try {
     const result = await database.run(
-      "UPDATE profiles SET name = ? WHERE id = ?",
-      [name, profileId],
+      "UPDATE profiles SET name = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+      [name, actorLabel(req), profileId],
     );
     if (!result.changes) return fail(res, 404, "Buyer profile not found.");
     res.json(await database.get(
-      "SELECT id, name, current_balance, hidden FROM profiles WHERE id = ?",
+      "SELECT id, name, current_balance, hidden, created_by, created_at, updated_by, updated_at FROM profiles WHERE id = ?",
       [profileId],
     ));
   } catch (error) {
@@ -386,9 +408,12 @@ app.patch("/api/profiles/:id/hidden", async (req, res) => {
         return fail(res, 409, "Settle this buyer's open route before hiding them.");
       }
     }
-    await database.run("UPDATE profiles SET hidden = ? WHERE id = ?", [hidden, profileId]);
+    await database.run(
+      "UPDATE profiles SET hidden = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+      [hidden, actorLabel(req), profileId],
+    );
     res.json(await database.get(
-      "SELECT id, name, current_balance, hidden FROM profiles WHERE id = ?",
+      "SELECT id, name, current_balance, hidden, created_by, created_at, updated_by, updated_at FROM profiles WHERE id = ?",
       [profileId],
     ));
   } catch (error) {
@@ -428,6 +453,7 @@ app.patch("/api/profiles/:id/balance", async (req, res) => {
     if (open) {
       return fail(res, 409, "Settle this buyer's open route before correcting their balance.");
     }
+    const actor = actorLabel(req);
     const result = await withTransaction(async (tx) => {
       const profile = await tx.get(
         "SELECT id, current_balance FROM profiles WHERE id = ?",
@@ -438,18 +464,21 @@ app.patch("/api/profiles/:id/balance", async (req, res) => {
       // Ledger balances are legitimately negative (buyer in credit), so unlike
       // warehouse stock there is no floor to clamp against.
       const newBalance = mode === "set" ? rawValue : roundMoney(oldBalance + rawValue);
-      await tx.run("UPDATE profiles SET current_balance = ? WHERE id = ?", [newBalance, profileId]);
+      await tx.run(
+        "UPDATE profiles SET current_balance = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+        [newBalance, actor, profileId],
+      );
       await tx.run(
         `INSERT INTO balance_adjustments
-           (profile_id, old_balance, new_balance, delta, mode, reason)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [profileId, oldBalance, newBalance, roundMoney(newBalance - oldBalance), mode, reason],
+           (profile_id, old_balance, new_balance, delta, mode, reason, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [profileId, oldBalance, newBalance, roundMoney(newBalance - oldBalance), mode, reason, actor],
       );
       return { oldBalance, newBalance };
     });
     if (result.notFound) return fail(res, 404, "Buyer profile not found.");
     res.json(await database.get(
-      "SELECT id, name, current_balance, hidden FROM profiles WHERE id = ?",
+      "SELECT id, name, current_balance, hidden, created_by, created_at, updated_by, updated_at FROM profiles WHERE id = ?",
       [profileId],
     ));
   } catch (error) {
@@ -463,7 +492,7 @@ app.get("/api/balance-adjustments", async (req, res) => {
   try {
     res.json({ adjustments: await database.all(
       `SELECT b.id, b.profile_id, p.name AS profile_name, b.old_balance,
-              b.new_balance, b.delta, b.mode, b.reason, b.created_at
+              b.new_balance, b.delta, b.mode, b.reason, b.created_at, b.created_by
          FROM balance_adjustments b
          LEFT JOIN profiles p ON p.id = b.profile_id
         ORDER BY b.created_at DESC, b.id DESC LIMIT 200`,
@@ -510,7 +539,7 @@ app.delete("/api/profiles/:id", async (req, res) => {
 app.get("/api/products", async (_req, res) => {
   try {
     res.json({ products: await database.all(
-      "SELECT id, name, warehouse_stock, unit_price FROM products ORDER BY id",
+      "SELECT id, name, warehouse_stock, unit_price, created_by, created_at, updated_by, updated_at FROM products ORDER BY id",
     ) });
   } catch (error) {
     console.error("Failed to list products", error);
@@ -567,6 +596,7 @@ app.post("/api/products", async (req, res) => {
     return fail(res, 400, "Product ID must be a positive whole number.");
   }
   try {
+    const actor = actorLabel(req);
     const outcome = await withTransaction(async (tx) => {
       let newId = customId;
       let shifted = 0;
@@ -583,16 +613,16 @@ app.post("/api/products", async (req, res) => {
           await shiftProductIdsFrom(tx, customId);
         }
         await tx.run(
-          "INSERT INTO products (id, name, warehouse_stock, unit_price) VALUES (?, ?, ?, ?)",
-          [customId, name, initialStock, unitPrice],
+          "INSERT INTO products (id, name, warehouse_stock, unit_price, created_by) VALUES (?, ?, ?, ?, ?)",
+          [customId, name, initialStock, unitPrice, actor],
         );
       } else {
         // Guard against a sequence that has drifted behind MAX(id), which would
         // otherwise hand out an id that is already taken.
         await resyncProductSequence(tx);
         const created = await tx.run(
-          "INSERT INTO products (name, warehouse_stock, unit_price) VALUES (?, ?, ?)",
-          [name, initialStock, unitPrice],
+          "INSERT INTO products (name, warehouse_stock, unit_price, created_by) VALUES (?, ?, ?, ?)",
+          [name, initialStock, unitPrice, actor],
         );
         newId = created.id;
       }
@@ -606,16 +636,16 @@ app.post("/api/products", async (req, res) => {
         await tx.run(
           `INSERT INTO dsr_items
             (dsr_id, product_id, opening_stock, loaded_stock, closing_stock,
-             qty_sold, unit_price, line_total)
-           VALUES (?, ?, 0, 0, 0, 0, ?, 0)
+             qty_sold, unit_price, line_total, created_by)
+           VALUES (?, ?, 0, 0, 0, 0, ?, 0, ?)
            ON CONFLICT (dsr_id, product_id) DO NOTHING`,
-          [session.id, newId, unitPrice],
+          [session.id, newId, unitPrice, actor],
         );
       }
       return { newId, shifted };
     });
     const product = await database.get(
-      "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ?",
+      "SELECT id, name, warehouse_stock, unit_price, created_by, created_at, updated_by, updated_at FROM products WHERE id = ?",
       [outcome.newId],
     );
     res.status(201).json({ ...product, shifted: outcome.shifted });
@@ -635,7 +665,7 @@ app.patch("/api/products/:id/product-id", async (req, res) => {
   }
   if (oldId === newId) return fail(res, 400, "New ID is the same as the current ID.");
   try {
-    const product = await database.get("SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ?", [oldId]);
+    const product = await database.get("SELECT id, name, warehouse_stock, unit_price, created_by, created_at, updated_by, updated_at FROM products WHERE id = ?", [oldId]);
     if (!product) return fail(res, 404, "Product not found.");
     const conflict = await database.get("SELECT id FROM products WHERE id = ?", [newId]);
     if (conflict) return fail(res, 409, `Product ID ${newId} is already in use.`);
@@ -672,10 +702,10 @@ app.patch("/api/products/:id/product-id", async (req, res) => {
 // and a CSV-driven inward bill that optionally carries a new price per line)
 // so this guarantee applies no matter which one was used. Returns false if
 // the product didn't exist (nothing to update).
-async function applyProductPriceUpdate(tx, productId, unitPrice) {
+async function applyProductPriceUpdate(tx, productId, unitPrice, actor) {
   const result = await tx.run(
-    "UPDATE products SET unit_price = ? WHERE id = ?",
-    [unitPrice, productId],
+    "UPDATE products SET unit_price = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+    [unitPrice, actor, productId],
   );
   if (!result.changes) return false;
 
@@ -690,8 +720,8 @@ async function applyProductPriceUpdate(tx, productId, unitPrice) {
   for (const item of openItems) {
     const lineTotal = roundMoney((item.qty_sold || 0) * unitPrice);
     await tx.run(
-      "UPDATE dsr_items SET unit_price = ?, line_total = ? WHERE id = ?",
-      [unitPrice, lineTotal, item.id],
+      "UPDATE dsr_items SET unit_price = ?, line_total = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+      [unitPrice, lineTotal, actor, item.id],
     );
     affectedSessionIds.add(item.dsr_id);
   }
@@ -701,8 +731,8 @@ async function applyProductPriceUpdate(tx, productId, unitPrice) {
       [dsrId],
     );
     await tx.run(
-      "UPDATE dsr_sessions SET total_sales = ? WHERE id = ?",
-      [roundMoney(totals.total_sales), dsrId],
+      "UPDATE dsr_sessions SET total_sales = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+      [roundMoney(totals.total_sales), actor, dsrId],
     );
   }
   return true;
@@ -717,10 +747,10 @@ app.patch("/api/products/:id/rate", async (req, res) => {
   }
   try {
     const product = await withTransaction(async (tx) => {
-      const changed = await applyProductPriceUpdate(tx, productId, unitPrice);
+      const changed = await applyProductPriceUpdate(tx, productId, unitPrice, actorLabel(req));
       if (!changed) return null;
       return tx.get(
-        "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ?",
+        "SELECT id, name, warehouse_stock, unit_price, created_by, created_at, updated_by, updated_at FROM products WHERE id = ?",
         [productId],
       );
     });
@@ -756,10 +786,11 @@ app.post("/api/products/bulk-rate", async (req, res) => {
     lines.push({ productId, unitPrice });
   }
   try {
+    const actor = actorLabel(req);
     const updatedIds = await withTransaction(async (tx) => {
       const ids = [];
       for (const [index, line] of lines.entries()) {
-        const changed = await applyProductPriceUpdate(tx, line.productId, line.unitPrice);
+        const changed = await applyProductPriceUpdate(tx, line.productId, line.unitPrice, actor);
         if (!changed) {
           throw new Error(lines.length === 1
             ? "Product not found."
@@ -770,7 +801,7 @@ app.post("/api/products/bulk-rate", async (req, res) => {
       return ids;
     });
     const products = await database.all(
-      "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ANY(?::int[]) ORDER BY id",
+      "SELECT id, name, warehouse_stock, unit_price, created_by, created_at, updated_by, updated_at FROM products WHERE id = ANY(?::int[]) ORDER BY id",
       [updatedIds],
     );
     res.json({ updatedCount: updatedIds.length, products });
@@ -783,7 +814,7 @@ app.post("/api/products/bulk-rate", async (req, res) => {
 // Shared by both the single-product stock PATCH and the CSV bulk-stock
 // endpoint below. mode "set" writes an absolute count; mode "adjust" applies
 // a signed delta. Every change is logged to stock_adjustments with a reason.
-async function applyStockAdjustment(tx, productId, mode, rawValue, reason) {
+async function applyStockAdjustment(tx, productId, mode, rawValue, reason, actor) {
   const product = await tx.get(
     "SELECT id, warehouse_stock FROM products WHERE id = ?",
     [productId],
@@ -794,11 +825,14 @@ async function applyStockAdjustment(tx, productId, mode, rawValue, reason) {
   if (newStock < 0) {
     return { invalid: "Resulting stock cannot be negative." };
   }
-  await tx.run("UPDATE products SET warehouse_stock = ? WHERE id = ?", [newStock, productId]);
   await tx.run(
-    `INSERT INTO stock_adjustments (product_id, old_stock, new_stock, delta, mode, reason)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [productId, oldStock, newStock, newStock - oldStock, mode, reason],
+    "UPDATE products SET warehouse_stock = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+    [newStock, actor, productId],
+  );
+  await tx.run(
+    `INSERT INTO stock_adjustments (product_id, old_stock, new_stock, delta, mode, reason, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [productId, oldStock, newStock, newStock - oldStock, mode, reason, actor],
   );
   return { oldStock, newStock };
 }
@@ -813,11 +847,11 @@ app.patch("/api/products/:id/stock", async (req, res) => {
     return fail(res, 400, "A valid product and whole-number value are required.");
   }
   try {
-    const result = await withTransaction((tx) => applyStockAdjustment(tx, productId, mode, rawValue, reason));
+    const result = await withTransaction((tx) => applyStockAdjustment(tx, productId, mode, rawValue, reason, actorLabel(req)));
     if (result.notFound) return fail(res, 404, "Product not found.");
     if (result.invalid) return fail(res, 400, result.invalid);
     res.json(await database.get(
-      "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ?",
+      "SELECT id, name, warehouse_stock, unit_price, created_by, created_at, updated_by, updated_at FROM products WHERE id = ?",
       [productId],
     ));
   } catch (error) {
@@ -853,10 +887,11 @@ app.post("/api/products/bulk-stock", async (req, res) => {
     lines.push({ productId, value, reason });
   }
   try {
+    const actor = actorLabel(req);
     const updatedIds = await withTransaction(async (tx) => {
       const ids = [];
       for (const [index, line] of lines.entries()) {
-        const result = await applyStockAdjustment(tx, line.productId, "set", line.value, line.reason);
+        const result = await applyStockAdjustment(tx, line.productId, "set", line.value, line.reason, actor);
         if (result.notFound) {
           throw new Error(lines.length === 1 ? "Product not found." : `Line ${index + 1}: product not found.`);
         }
@@ -868,7 +903,7 @@ app.post("/api/products/bulk-stock", async (req, res) => {
       return ids;
     });
     const products = await database.all(
-      "SELECT id, name, warehouse_stock, unit_price FROM products WHERE id = ANY(?::int[]) ORDER BY id",
+      "SELECT id, name, warehouse_stock, unit_price, created_by, created_at, updated_by, updated_at FROM products WHERE id = ANY(?::int[]) ORDER BY id",
       [updatedIds],
     );
     res.json({ updatedCount: updatedIds.length, products });
@@ -914,7 +949,7 @@ app.get("/api/purchases", async (_req, res) => {
   try {
     res.json({ purchases: await database.all(
       `SELECT pu.id, pu.product_id, p.name AS product_name, pu.qty_added,
-              pu.supplier_ref, pu.created_at
+              pu.supplier_ref, pu.created_at, pu.created_by
          FROM purchases pu JOIN products p ON p.id = pu.product_id
         ORDER BY pu.created_at DESC, pu.id DESC LIMIT 100`,
     ) });
@@ -929,7 +964,7 @@ app.get("/api/stock-adjustments", async (req, res) => {
   try {
     res.json({ adjustments: await database.all(
       `SELECT a.id, a.product_id, p.name AS product_name, a.old_stock,
-              a.new_stock, a.delta, a.mode, a.reason, a.created_at
+              a.new_stock, a.delta, a.mode, a.reason, a.created_at, a.created_by
          FROM stock_adjustments a
          LEFT JOIN products p ON p.id = a.product_id
         ORDER BY a.created_at DESC, a.id DESC LIMIT 200`,
@@ -997,6 +1032,7 @@ app.post("/api/inventory/purchase", async (req, res) => {
   }
 
   try {
+    const actor = actorLabel(req);
     const createdIds = await withTransaction(async (tx) => {
       const ids = [];
       for (const [index, line] of lines.entries()) {
@@ -1007,15 +1043,15 @@ app.post("/api/inventory/purchase", async (req, res) => {
             : `Line ${index + 1}: product not found.`);
         }
         await tx.run(
-          "UPDATE products SET warehouse_stock = warehouse_stock + ? WHERE id = ?",
-          [line.qtyAdded, line.productId],
+          "UPDATE products SET warehouse_stock = warehouse_stock + ?, updated_by = ?, updated_at = now() WHERE id = ?",
+          [line.qtyAdded, actor, line.productId],
         );
         if (line.unitPrice !== null) {
-          await applyProductPriceUpdate(tx, line.productId, line.unitPrice);
+          await applyProductPriceUpdate(tx, line.productId, line.unitPrice, actor);
         }
         const created = await tx.run(
-          "INSERT INTO purchases (product_id, qty_added, supplier_ref) VALUES (?, ?, ?)",
-          [line.productId, line.qtyAdded, supplierRef],
+          "INSERT INTO purchases (product_id, qty_added, supplier_ref, created_by) VALUES (?, ?, ?, ?)",
+          [line.productId, line.qtyAdded, supplierRef, actor],
         );
         ids.push(created.id);
       }
@@ -1023,7 +1059,7 @@ app.post("/api/inventory/purchase", async (req, res) => {
     });
     const rows = await database.all(
       `SELECT pu.id, pu.product_id, p.name AS product_name, pu.qty_added,
-              pu.supplier_ref, pu.created_at, p.warehouse_stock
+              pu.supplier_ref, pu.created_at, pu.created_by, p.warehouse_stock
          FROM purchases pu JOIN products p ON p.id = pu.product_id
         WHERE pu.id = ANY(?::int[])
         ORDER BY pu.id`,
@@ -1052,8 +1088,8 @@ app.delete("/api/purchases/:id", async (req, res) => {
     if (!purchase) return fail(res, 404, "Purchase record not found.");
     await withTransaction(async (tx) => {
       await tx.run(
-        "UPDATE products SET warehouse_stock = GREATEST(0, warehouse_stock - ?) WHERE id = ?",
-        [purchase.qty_added, purchase.product_id],
+        "UPDATE products SET warehouse_stock = GREATEST(0, warehouse_stock - ?), updated_by = ?, updated_at = now() WHERE id = ?",
+        [purchase.qty_added, actorLabel(req), purchase.product_id],
       );
       await tx.run("DELETE FROM purchases WHERE id = ?", [purchaseId]);
     });
@@ -1068,6 +1104,9 @@ app.get("/api/dsr/active/:buyerId", async (req, res) => {
   const buyerId = positiveInteger(req.params.buyerId);
   if (buyerId === null || buyerId < 1) return fail(res, 400, "Invalid buyer id.");
   try {
+    // Read-only: viewing a buyer's page can lazily create their session row
+    // (so the UI has something to render), but that isn't a "save" — leave
+    // it unattributed rather than crediting whoever merely opened the page.
     const sessionId = await getOrCreateActiveSession(buyerId);
     if (!sessionId) return fail(res, 404, "Buyer profile not found.");
     res.json(await getSessionPayload(sessionId));
@@ -1084,7 +1123,8 @@ app.post("/api/dsr/load-in", async (req, res) => {
     return fail(res, 400, "Buyer and at least one load-in row are required.");
   }
   try {
-    const sessionId = await getOrCreateActiveSession(buyerId);
+    const actor = actorLabel(req);
+    const sessionId = await getOrCreateActiveSession(buyerId, actor);
     if (!sessionId) return fail(res, 404, "Buyer profile not found.");
     await withTransaction(async (tx) => {
       for (const requestedItem of items) {
@@ -1110,16 +1150,16 @@ app.post("/api/dsr/load-in", async (req, res) => {
         );
         if (!item) throw new Error("This DSR item is not available.");
         await tx.run(
-          "UPDATE products SET warehouse_stock = warehouse_stock - ? WHERE id = ?",
-          [additionalLoad, productId],
+          "UPDATE products SET warehouse_stock = warehouse_stock - ?, updated_by = ?, updated_at = now() WHERE id = ?",
+          [additionalLoad, actor, productId],
         );
         await tx.run(
-          "UPDATE dsr_items SET loaded_stock = loaded_stock + ? WHERE id = ?",
-          [additionalLoad, item.id],
+          "UPDATE dsr_items SET loaded_stock = loaded_stock + ?, updated_by = ?, updated_at = now() WHERE id = ?",
+          [additionalLoad, actor, item.id],
         );
         await tx.run(
-          "INSERT INTO dispatches (dsr_id, product_id, qty) VALUES (?, ?, ?)",
-          [sessionId, productId, additionalLoad],
+          "INSERT INTO dispatches (dsr_id, product_id, qty, created_by) VALUES (?, ?, ?, ?)",
+          [sessionId, productId, additionalLoad, actor],
         );
       }
     });
@@ -1173,16 +1213,20 @@ app.post("/api/dsr/load-in/correct", async (req, res) => {
     if (totalDispatched < item.qty_sold) {
       return fail(res, 409, "Total dispatched cannot be less than the quantity already recorded as sold for this route.");
     }
+    const actor = actorLabel(req);
     const loadedStock = totalDispatched - item.opening_stock;
     if (totalDispatched < item.closing_stock) {
       const closingStock = totalDispatched - item.qty_sold;
       const lineTotal = roundMoney(item.qty_sold * item.unit_price);
       await database.run(
-        "UPDATE dsr_items SET loaded_stock = ?, closing_stock = ?, line_total = ? WHERE id = ?",
-        [loadedStock, closingStock, lineTotal, item.id],
+        "UPDATE dsr_items SET loaded_stock = ?, closing_stock = ?, line_total = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+        [loadedStock, closingStock, lineTotal, actor, item.id],
       );
     } else {
-      await database.run("UPDATE dsr_items SET loaded_stock = ? WHERE id = ?", [loadedStock, item.id]);
+      await database.run(
+        "UPDATE dsr_items SET loaded_stock = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+        [loadedStock, actor, item.id],
+      );
     }
     res.json(await getSessionPayload(session.id));
   } catch (error) {
@@ -1212,12 +1256,12 @@ app.post("/api/payments", async (req, res) => {
     if (!session) return fail(res, 404, "DSR session not found.");
     if (session.status !== "IN_PROGRESS") return fail(res, 409, "Settled DSRs are locked.");
     const created = await database.run(
-      `INSERT INTO payments (dsr_id, method, label_info, amount)
-       VALUES (?, ?, ?, ?)`,
-      [dsrId, method, labelInfo, amount],
+      `INSERT INTO payments (dsr_id, method, label_info, amount, created_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [dsrId, method, labelInfo, amount, actorLabel(req)],
     );
     const payment = await database.get(
-      `SELECT id, dsr_id, method, label_info, amount, created_at
+      `SELECT id, dsr_id, method, label_info, amount, created_at, created_by
          FROM payments WHERE id = ?`,
       [created.id],
     );
@@ -1281,6 +1325,7 @@ app.post("/api/dsr/close", async (req, res) => {
     if (closingByProduct.size !== storedItems.length) {
       throw new Error("Closing stock is required for every product.");
     }
+    const actor = actorLabel(req);
     await withTransaction(async (tx) => {
       let totalSales = 0;
       for (const item of storedItems) {
@@ -1293,14 +1338,14 @@ app.post("/api/dsr/close", async (req, res) => {
         const lineTotal = roundMoney(qtySold * item.unit_price);
         totalSales += lineTotal;
         await tx.run(
-          "UPDATE dsr_items SET closing_stock = ?, qty_sold = ?, line_total = ? WHERE id = ?",
-          [closingStock, qtySold, lineTotal, item.id],
+          "UPDATE dsr_items SET closing_stock = ?, qty_sold = ?, line_total = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+          [closingStock, qtySold, lineTotal, actor, item.id],
         );
       }
       totalSales = roundMoney(totalSales);
       await tx.run(
-        "UPDATE dsr_sessions SET total_sales = ? WHERE id = ?",
-        [totalSales, dsrId],
+        "UPDATE dsr_sessions SET total_sales = ?, updated_by = ?, updated_at = now() WHERE id = ?",
+        [totalSales, actor, dsrId],
       );
     });
     res.json(await getSessionPayload(dsrId));
@@ -1329,6 +1374,7 @@ app.post("/api/dsr/settle", async (req, res) => {
     );
     const totalPayments = roundMoney(paymentTotals.total_payments);
     const updatedBalance = roundMoney(session.prev_balance + session.total_sales - totalPayments);
+    const actor = actorLabel(req);
     await withTransaction(async (tx) => {
       // Stamp the route with today's date at settle time, not whenever it was first
       // opened — a route can sit IN_PROGRESS across several real days (load-in and
@@ -1337,13 +1383,14 @@ app.post("/api/dsr/settle", async (req, res) => {
       // history and daily reports filter and group by.
       await tx.run(
         `UPDATE dsr_sessions
-            SET date = ?, total_payments = ?, updated_balance = ?, status = 'SETTLED'
+            SET date = ?, total_payments = ?, updated_balance = ?, status = 'SETTLED',
+                updated_by = ?, updated_at = now()
           WHERE id = ?`,
-        [today(), totalPayments, updatedBalance, dsrId],
+        [today(), totalPayments, updatedBalance, actor, dsrId],
       );
       await tx.run(
-        "UPDATE profiles SET current_balance = ? WHERE id = (SELECT buyer_id FROM dsr_sessions WHERE id = ?)",
-        [updatedBalance, dsrId],
+        "UPDATE profiles SET current_balance = ?, updated_by = ?, updated_at = now() WHERE id = (SELECT buyer_id FROM dsr_sessions WHERE id = ?)",
+        [updatedBalance, actor, dsrId],
       );
     });
     res.json(await getSessionPayload(dsrId));
@@ -1420,7 +1467,10 @@ app.post("/api/dsr/reopen", async (req, res) => {
       if (nextSession) {
         await tx.run("DELETE FROM dsr_sessions WHERE id = ?", [nextSession.id]);
       }
-      await tx.run("UPDATE dsr_sessions SET status = 'IN_PROGRESS' WHERE id = ?", [dsrId]);
+      await tx.run(
+        "UPDATE dsr_sessions SET status = 'IN_PROGRESS', updated_by = ?, updated_at = now() WHERE id = ?",
+        [actorLabel(req), dsrId],
+      );
     });
     res.json(await getSessionPayload(dsrId));
   } catch (error) {
@@ -1447,19 +1497,20 @@ app.post("/api/dsr/return-stock", async (req, res) => {
     );
     if (!items.length) return res.json({ returned: [], message: "No stock to return." });
 
+    const actor = actorLabel(req);
     await withTransaction(async (tx) => {
       for (const item of items) {
         await tx.run(
-          "UPDATE products SET warehouse_stock = warehouse_stock + ? WHERE id = ?",
-          [item.closing_stock, item.product_id],
+          "UPDATE products SET warehouse_stock = warehouse_stock + ?, updated_by = ?, updated_at = now() WHERE id = ?",
+          [item.closing_stock, actor, item.product_id],
         );
         await tx.run(
-          "UPDATE dsr_items SET closing_stock = 0 WHERE id = ?",
-          [item.id],
+          "UPDATE dsr_items SET closing_stock = 0, updated_by = ?, updated_at = now() WHERE id = ?",
+          [actor, item.id],
         );
         await tx.run(
-          "INSERT INTO stock_returns (dsr_id, product_id, qty_returned) VALUES (?, ?, ?)",
-          [dsrId, item.product_id, item.closing_stock],
+          "INSERT INTO stock_returns (dsr_id, product_id, qty_returned, created_by) VALUES (?, ?, ?, ?)",
+          [dsrId, item.product_id, item.closing_stock, actor],
         );
       }
     });
@@ -1531,14 +1582,15 @@ app.get("/api/reports/csv", async (_req, res) => {
     const startOfMonth = `${today().slice(0, 7)}-01`;
     const rows = await database.all(
       `SELECT s.id, s.date, p.name AS buyer_name, s.prev_balance,
-              s.total_sales, s.total_payments, s.updated_balance, s.status
+              s.total_sales, s.total_payments, s.updated_balance, s.status,
+              s.created_by, s.updated_by
          FROM dsr_sessions s JOIN profiles p ON p.id = s.buyer_id
         WHERE s.date >= ? ORDER BY s.date DESC, s.id DESC`,
       [startOfMonth],
     );
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="dsr-mtd-report.csv"');
-     res.write("DSR ID,Date,Buyer,Previous Balance,Total Sales,Payments Received,Updated Ledger Balance,Status\n");
+     res.write("DSR ID,Date,Buyer,Previous Balance,Total Sales,Payments Received,Updated Ledger Balance,Status,Entered By,Updated By\n");
      const money = (value) => `₹${roundMoney(value).toFixed(2)}`;
     for (const row of rows) {
       const values = [
@@ -1550,6 +1602,8 @@ app.get("/api/reports/csv", async (_req, res) => {
          money(row.total_payments),
          money(row.updated_balance),
         row.status,
+        row.created_by || "Unknown",
+        row.updated_by || "",
       ].map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`);
       res.write(`${values.join(",")}\n`);
     }
@@ -1616,7 +1670,7 @@ app.get("/api/reports/inventory", async (req, res) => {
     );
 
     const inventory = await database.all(
-      "SELECT id, name, warehouse_stock, unit_price FROM products ORDER BY id",
+      "SELECT id, name, warehouse_stock, unit_price, created_by, created_at, updated_by, updated_at FROM products ORDER BY id",
     );
 
     res.json({ filters: { from, to }, bills, inventory });
@@ -1872,7 +1926,7 @@ app.get("/api/reports/payments", async (req, res) => {
     const to   = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.to)   ? req.query.to   : today();
 
     const rows = await database.all(
-      `SELECT p.id, p.dsr_id, p.method, p.label_info, p.amount,
+      `SELECT p.id, p.dsr_id, p.method, p.label_info, p.amount, p.created_by,
               s.date, pr.name AS buyer_name, pr.id AS buyer_id
          FROM payments p
          JOIN dsr_sessions s  ON s.id  = p.dsr_id
@@ -1894,7 +1948,7 @@ app.get("/api/reports/payments", async (req, res) => {
       if (!dayMap.has(row.date)) dayMap.set(row.date, { date: row.date, day_total: 0, payments: [] });
       const day = dayMap.get(row.date);
       day.day_total = roundMoney(day.day_total + amount);
-      day.payments.push({ id: row.id, dsr_id: row.dsr_id, buyer_name: row.buyer_name, buyer_id: row.buyer_id, method: row.method, label_info: row.label_info, amount });
+      day.payments.push({ id: row.id, dsr_id: row.dsr_id, buyer_name: row.buyer_name, buyer_id: row.buyer_id, method: row.method, label_info: row.label_info, amount, created_by: row.created_by });
     }
 
     // Current balances + last settled date for all profiles
@@ -1927,7 +1981,8 @@ app.get("/api/reports/settlement", async (req, res) => {
 
     const sessions = await database.all(
       `SELECT s.id, s.date, pr.name AS buyer_name,
-              s.prev_balance, s.total_sales, s.total_payments, s.updated_balance
+              s.prev_balance, s.total_sales, s.total_payments, s.updated_balance,
+              s.created_by, s.created_at, s.updated_by, s.updated_at
          FROM dsr_sessions s
          JOIN profiles pr ON pr.id = s.buyer_id
         WHERE s.status = 'SETTLED'

@@ -130,6 +130,46 @@ CREATE TABLE IF NOT EXISTS balance_adjustments (
 );
 CREATE INDEX IF NOT EXISTS idx_balance_adjustments_created_at ON balance_adjustments (created_at);
 
+-- ---------------------------------------------------------------------------
+-- Audit trail: who created / last edited each record. `_by` columns hold the
+-- role-derived actor label ("Admin" / "Store Manager") from the verified
+-- session cookie — never a client-supplied value. NULL on both `_by` columns
+-- means the row predates this change; the UI shows nothing rather than
+-- guessing. `updated_*` only applies to tables whose rows are actually
+-- mutated after insert; pure insert-then-delete logs (payments, purchases,
+-- stock_returns, stock_adjustments, dispatches, balance_adjustments) get
+-- created_by only. created_at DEFAULT now() backfills existing dsr_sessions /
+-- dsr_items / profiles / products rows with the migration run time, not
+-- their true history — harmless since the UI only renders a timestamp
+-- alongside a non-null `_by`.
+-- ---------------------------------------------------------------------------
+ALTER TABLE dsr_sessions ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE dsr_sessions ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE dsr_sessions ADD COLUMN IF NOT EXISTS updated_by TEXT;
+ALTER TABLE dsr_sessions ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+
+ALTER TABLE dsr_items ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE dsr_items ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE dsr_items ADD COLUMN IF NOT EXISTS updated_by TEXT;
+ALTER TABLE dsr_items ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+
+ALTER TABLE payments   ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE purchases  ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE stock_returns     ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE stock_adjustments ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE dispatches        ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE balance_adjustments ADD COLUMN IF NOT EXISTS created_by TEXT;
+
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS updated_by TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+
+ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_by TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+
 CREATE INDEX IF NOT EXISTS idx_sessions_buyer_status ON dsr_sessions (buyer_id, status);
 CREATE INDEX IF NOT EXISTS idx_sessions_date         ON dsr_sessions (date);
 CREATE INDEX IF NOT EXISTS idx_purchases_created_at  ON purchases (created_at);

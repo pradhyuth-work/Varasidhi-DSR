@@ -168,6 +168,7 @@
               </div>
               <p class="table-footnote"><span class="info-mark">i</span> Additional load is added to the existing opening stock. Only positive quantities can be dispatched.</p>
               <div class="dsr-save-bar">
+                <p class="attribution-line" id="load-attribution"></p>
                 <button class="button button-primary" id="save-load" type="button" data-testid="button-save-load">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Save load-in
                 </button>
@@ -186,6 +187,7 @@
               </div>
               <div class="settlement-note"><span class="info-mark">i</span><span>Sales are calculated as route stock less closing stock. Save closing before collecting payments.</span><strong id="settlement-total">—</strong></div>
               <div class="dsr-save-bar">
+                <p class="attribution-line" id="closing-attribution"></p>
                 <button class="button button-primary" id="save-closing" type="button" data-testid="button-save-closing">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save closing
                 </button>
@@ -205,9 +207,12 @@
                   <div class="settle-bar-stat"><span>Payments received</span><b id="settle-summary-payments">—</b></div>
                   <div class="settle-bar-stat settle-bar-balance"><span>Balance after settlement</span><b id="settle-summary-balance">—</b></div>
                 </div>
-                <button class="button button-dark" id="settle-route" type="button" data-testid="button-settle-route">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Settle &amp; finalise
-                </button>
+                <div>
+                  <p class="attribution-line" id="settlement-attribution"></p>
+                  <button class="button button-dark" id="settle-route" type="button" data-testid="button-settle-route">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Settle &amp; finalise
+                  </button>
+                </div>
               </div>
               <div class="return-stock-bar" id="return-stock-bar" hidden>
                 <div class="return-stock-info">
@@ -668,6 +673,7 @@
                     <div>
                       <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT BREAKDOWN</span></div>
                       <h2 id="settle-detail-title">Settlement detail</h2>
+                      <p class="attribution-line" id="settle-detail-attribution"></p>
                     </div>
                     <button class="button button-quiet compact-button" type="button" id="settle-reopen-btn" hidden>Reopen for editing</button>
                   </div>
@@ -985,6 +991,12 @@
     </div>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
     <div id="busy-overlay" class="busy-overlay" hidden aria-hidden="true"><div class="busy-spinner"></div></div>
+    <div id="status-overlay" class="status-overlay" hidden role="status" aria-live="assertive" aria-atomic="true">
+      <div class="status-card">
+        <div id="status-icon" class="status-icon"></div>
+        <p id="status-message" class="status-message"></p>
+      </div>
+    </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
     <script src="/app.js" defer></script>
   </body>

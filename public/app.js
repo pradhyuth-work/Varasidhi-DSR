@@ -21,6 +21,7 @@
     loadDrafts: {},
     closingDrafts: {},
     closingSaved: false,
+    lastDispatch: null,
     dsrTab: 'dispatch',
     reportGroup: 'sales',
     salesView: 'product',
@@ -67,6 +68,30 @@
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   };
   const initials = (name) => String(name || '—').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '—';
+  // "Saved by X · date" / "Last edited by X · date" for the audit-trail line.
+  // Records from before this feature shipped have no created_by/updated_by —
+  // show nothing rather than a fabricated "Unknown" timestamp for those.
+  const attributionText = (createdBy, createdAt, updatedBy, updatedAt) => {
+    const by = updatedBy || createdBy;
+    if (!by) return '';
+    const ts = updatedBy ? updatedAt : createdAt;
+    const when = ts ? ` · ${dateLabel(ts)} ${timeLabel(ts)}` : '';
+    return `${updatedBy ? 'Last edited by' : 'Saved by'} ${by}${when}`;
+  };
+  // Load-in and closing both write to the same dsr_items row (different
+  // columns), so the row's own updated_by would show whichever action
+  // happened most recently for BOTH tabs. Aggregating across items still
+  // works for Closing (it's the normal last step before settlement); Load In
+  // uses the dedicated `dispatches` log instead — see state.lastDispatch.
+  const itemsAttribution = (items) => {
+    let best = null;
+    for (const item of items) {
+      const ts = item.updated_at || item.created_at;
+      if (!ts || (best && new Date(ts) <= new Date(best.ts))) continue;
+      best = { ts, createdBy: item.created_by, createdAt: item.created_at, updatedBy: item.updated_by, updatedAt: item.updated_at };
+    }
+    return best ? attributionText(best.createdBy, best.createdAt, best.updatedBy, best.updatedAt) : '';
+  };
   const setHidden = (id, hidden) => { $(id).hidden = hidden; };
 
   // Every write (anything not a GET) shows a blurred, click-blocking overlay
@@ -124,6 +149,22 @@
     announce.timer = window.setTimeout(() => { $('global-feedback').textContent = ''; }, 4800);
   }
 
+  // Full-screen blur/dim "Saved" / error confirmation for the three actions
+  // that finalise a route's state (load-in, closing, settlement) — distinct
+  // from the small corner toast, which stays in place for lower-stakes saves.
+  const CHECK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>';
+  const CROSS_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+  function showStatusOverlay(kind, message) {
+    const isError = kind === 'error';
+    const overlay = $('status-overlay');
+    $('status-icon').className = `status-icon ${isError ? 'error' : 'success'}`;
+    $('status-icon').innerHTML = isError ? CROSS_ICON : CHECK_ICON;
+    $('status-message').textContent = message || (isError ? 'Error saving. Try again.' : 'Saved');
+    overlay.hidden = false;
+    window.clearTimeout(showStatusOverlay.timer);
+    showStatusOverlay.timer = window.setTimeout(() => { overlay.hidden = true; }, isError ? 2600 : 1800);
+  }
+
   function setBusy(isBusy, buttonId) {
     state.busy = isBusy;
     const button = buttonId && $(buttonId);
@@ -143,6 +184,7 @@
     if (data.session) state.session = data.session;
     if (Array.isArray(data.items)) state.items = data.items;
     if (Array.isArray(data.payments)) state.payments = data.payments;
+    if ('lastDispatch' in data) state.lastDispatch = data.lastDispatch;
     state.items.forEach((item) => {
       if (state.loadDrafts[item.product_id] === undefined) state.loadDrafts[item.product_id] = 0;
       if (state.closingDrafts[item.product_id] === undefined) state.closingDrafts[item.product_id] = item.closing_stock ?? 0;
@@ -1032,6 +1074,9 @@
   function renderSettlementDetail(session) {
     const products = session.items;
     $('settle-detail-title').textContent = `${session.buyer_name} · ${dateLabel(session.date)}`;
+    $('settle-detail-attribution').textContent = attributionText(
+      session.created_by, session.created_at, session.updated_by, session.updated_at,
+    );
     const reopenBtn = $('settle-reopen-btn');
     reopenBtn.hidden = state.role !== 'Admin';
     reopenBtn.dataset.dsrId = session.id;
@@ -1427,6 +1472,14 @@
     }).join('') : '<tr><td colspan="6">No products are attached to this route.</td></tr>';
     renderPayments();
     updateTotals(itemById);
+    const lastDispatch = state.lastDispatch;
+    $('load-attribution').textContent = lastDispatch
+      ? attributionText(lastDispatch.created_by, lastDispatch.created_at, null, null)
+      : '';
+    $('closing-attribution').textContent = itemsAttribution(state.items);
+    $('settlement-attribution').textContent = attributionText(
+      session.created_by, session.created_at, session.updated_by, session.updated_at,
+    );
   }
 
   function updateTotals(itemById = new Map(state.items.map((item) => [Number(item.product_id), item]))) {
@@ -1484,7 +1537,7 @@
     setHidden('payments-list', !hasPayments);
     setHidden('payments-empty', hasPayments);
     if (!hasPayments) return;
-    $('payments-list').innerHTML = state.payments.map((payment) => `<div class="payment-row" data-payment-row="${escapeHtml(payment.id)}"><div class="payment-method">${escapeHtml(payment.method || 'Payment')}<small>${escapeHtml(payment.label_info || 'No reference')}</small></div><div class="payment-label">${escapeHtml(payment.label_info || '—')}</div><div class="payment-date">${dateLabel(payment.created_at)} · ${timeLabel(payment.created_at)}</div><div class="payment-amount">${currency(payment.amount)}</div><button class="delete-payment" type="button" data-delete-payment="${escapeHtml(payment.id)}" title="${state.role === 'Admin' ? 'Delete payment' : 'Admin access required'}" aria-label="Delete payment ${escapeHtml(payment.id)}" ${state.role !== 'Admin' ? 'disabled' : ''} data-testid="button-delete-payment-${escapeHtml(payment.id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14m-9 4v6m4-6v6M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg></button></div>`).join('');
+    $('payments-list').innerHTML = state.payments.map((payment) => `<div class="payment-row" data-payment-row="${escapeHtml(payment.id)}"><div class="payment-method">${escapeHtml(payment.method || 'Payment')}<small>${escapeHtml(payment.label_info || 'No reference')}</small></div><div class="payment-label">${escapeHtml(payment.label_info || '—')}</div><div class="payment-date">${dateLabel(payment.created_at)} · ${timeLabel(payment.created_at)}${payment.created_by ? `<small class="attribution-line">Added by ${escapeHtml(payment.created_by)}</small>` : ''}</div><div class="payment-amount">${currency(payment.amount)}</div><button class="delete-payment" type="button" data-delete-payment="${escapeHtml(payment.id)}" title="${state.role === 'Admin' ? 'Delete payment' : 'Admin access required'}" aria-label="Delete payment ${escapeHtml(payment.id)}" ${state.role !== 'Admin' ? 'disabled' : ''} data-testid="button-delete-payment-${escapeHtml(payment.id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14m-9 4v6m4-6v6M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg></button></div>`).join('');
   }
 
   async function saveLoad() {
@@ -1498,10 +1551,10 @@
       state.closingDrafts = {};
       state.closingSaved = false;
       hydratePayload(payload);
-      toast('Load-in saved. Warehouse counts are updated.');
+      showStatusOverlay('success', 'Saved');
       announce('Dispatch recorded for this route.');
       render();
-    } catch (error) { toast(error.message, 'error'); } finally { setBusy(false, 'save-load'); }
+    } catch (error) { showStatusOverlay('error', error.message); } finally { setBusy(false, 'save-load'); }
   }
 
   async function saveClosing() {
@@ -1525,10 +1578,10 @@
       hydratePayload(payload);
       state.closingDrafts = {};
       state.closingSaved = true;
-      toast('Closing stock saved. Add payments then settle when ready.');
+      showStatusOverlay('success', 'Saved');
       announce('Closing stock recorded.');
       render();
-    } catch (error) { toast(error.message, 'error'); } finally { setBusy(false, 'save-closing'); }
+    } catch (error) { showStatusOverlay('error', error.message); } finally { setBusy(false, 'save-closing'); }
   }
 
   function openReturnStockModal() {
@@ -1580,10 +1633,10 @@
     try {
       const payload = await request('/api/dsr/settle', { method: 'POST', body: JSON.stringify({ dsrId: Number(state.session.id) }) });
       hydratePayload(payload);
-      toast('Route settled. Ledger balance updated.');
+      showStatusOverlay('success', 'Saved');
       announce('Settlement complete.');
       render();
-    } catch (error) { toast(error.message, 'error'); } finally { setBusy(false, 'settle-route'); }
+    } catch (error) { showStatusOverlay('error', error.message); } finally { setBusy(false, 'settle-route'); }
   }
 
   async function submitPayment(event) {
@@ -2972,6 +3025,10 @@
   }
 
   function bindEvents() {
+    $('status-overlay').addEventListener('click', () => {
+      window.clearTimeout(showStatusOverlay.timer);
+      $('status-overlay').hidden = true;
+    });
     $('login-form').addEventListener('submit', submitLogin);
     $('close-balance-adjust').addEventListener('click', closeBalanceAdjust);
     $('cancel-balance-adjust').addEventListener('click', closeBalanceAdjust);
