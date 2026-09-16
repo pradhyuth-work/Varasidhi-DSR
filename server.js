@@ -119,7 +119,7 @@ async function getSessionPayload(sessionId) {
     [sessionId],
   );
   const payments = await database.all(
-    `SELECT id, dsr_id, method, label_info, amount, created_at, created_by
+    `SELECT id, dsr_id, method, label_info, amount, created_at, created_by, paid_at
        FROM payments WHERE dsr_id = ? ORDER BY created_at DESC, id DESC`,
     [sessionId],
   );
@@ -1255,13 +1255,15 @@ app.post("/api/payments", async (req, res) => {
     );
     if (!session) return fail(res, 404, "DSR session not found.");
     if (session.status !== "IN_PROGRESS") return fail(res, 409, "Settled DSRs are locked.");
+    // paid_at is set here with the literal SQL now(), never from req.body —
+    // there is no code path that reads a client-supplied paid_at value.
     const created = await database.run(
-      `INSERT INTO payments (dsr_id, method, label_info, amount, created_by)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO payments (dsr_id, method, label_info, amount, created_by, paid_at)
+       VALUES (?, ?, ?, ?, ?, now())`,
       [dsrId, method, labelInfo, amount, actorLabel(req)],
     );
     const payment = await database.get(
-      `SELECT id, dsr_id, method, label_info, amount, created_at, created_by
+      `SELECT id, dsr_id, method, label_info, amount, created_at, created_by, paid_at
          FROM payments WHERE id = ?`,
       [created.id],
     );
@@ -1925,15 +1927,27 @@ app.get("/api/reports/payments", async (req, res) => {
     const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.from) ? req.query.from : `${today().slice(0, 7)}-01`;
     const to   = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.to)   ? req.query.to   : today();
 
+    // Grouped and filtered by the payment's own paid_at (in IST, matching
+    // today()/firstOfMonth() above) — NOT s.date, which is the route's open
+    // date and stays frozen while a session is IN_PROGRESS, even as payments
+    // keep getting added to it on later real days. Filtering on s.date made
+    // recent payments on a long-open route invisible to any recent-date
+    // filter; see the investigation that preceded this fix.
     const rows = await database.all(
-      `SELECT p.id, p.dsr_id, p.method, p.label_info, p.amount, p.created_by,
-              s.date, pr.name AS buyer_name, pr.id AS buyer_id
+      // to_char(...), not ::date — a native `date` value comes back from
+      // node-pg as a JS Date (serialised with a timezone-shifted ISO string,
+      // not the plain 'YYYY-MM-DD' every other date field in this app uses).
+      // to_char always returns text, matching s.date's existing shape.
+      `SELECT p.id, p.dsr_id, p.method, p.label_info, p.amount, p.created_by, p.paid_at,
+              to_char(p.paid_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS date,
+              pr.name AS buyer_name, pr.id AS buyer_id
          FROM payments p
          JOIN dsr_sessions s  ON s.id  = p.dsr_id
          JOIN profiles     pr ON pr.id = s.buyer_id
-        WHERE s.date >= ? AND s.date <= ?
+        WHERE (p.paid_at AT TIME ZONE 'Asia/Kolkata')::date >= ?::date
+          AND (p.paid_at AT TIME ZONE 'Asia/Kolkata')::date <= ?::date
           AND (?::int IS NULL OR s.buyer_id = ?)
-        ORDER BY s.date DESC, s.id DESC, p.id ASC`,
+        ORDER BY (p.paid_at AT TIME ZONE 'Asia/Kolkata')::date DESC, p.paid_at ASC`,
       [from, to, profileId, profileId],
     );
 
@@ -1948,7 +1962,7 @@ app.get("/api/reports/payments", async (req, res) => {
       if (!dayMap.has(row.date)) dayMap.set(row.date, { date: row.date, day_total: 0, payments: [] });
       const day = dayMap.get(row.date);
       day.day_total = roundMoney(day.day_total + amount);
-      day.payments.push({ id: row.id, dsr_id: row.dsr_id, buyer_name: row.buyer_name, buyer_id: row.buyer_id, method: row.method, label_info: row.label_info, amount, created_by: row.created_by });
+      day.payments.push({ id: row.id, dsr_id: row.dsr_id, buyer_name: row.buyer_name, buyer_id: row.buyer_id, method: row.method, label_info: row.label_info, amount, created_by: row.created_by, paid_at: row.paid_at });
     }
 
     // Current balances + last settled date for all profiles
@@ -2014,7 +2028,7 @@ app.get("/api/reports/settlement", async (req, res) => {
       `SELECT dsr_id, method, label_info, amount
          FROM payments
         WHERE dsr_id IN (${ph})
-        ORDER BY created_at`,
+        ORDER BY paid_at ASC`,
       sessionIds,
     );
 
