@@ -25,8 +25,11 @@
     <div id="app" class="app-shell">
       <aside class="sidebar" aria-label="Primary navigation">
         <div class="brand">
+          <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-testid="button-sidebar-toggle">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
           <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-          <div><strong>Varasidhi Enterprises</strong><small>FIELD OPERATIONS</small></div>
+          <div class="brand-text"><strong>Varasidhi Enterprises</strong><small>FIELD OPERATIONS</small></div>
         </div>
         <nav class="nav-list">
           <button id="nav-dashboard" class="nav-item active" type="button" data-nav="dashboard" data-testid="button-nav-dashboard">

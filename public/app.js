@@ -3024,7 +3024,25 @@
     }
   }
 
+  function initSidebarToggle() {
+    const sidebar = document.querySelector('.sidebar');
+    const toggle = $('sidebar-toggle');
+    if (!sidebar || !toggle) return;
+    let expanded = localStorage.getItem('dsr-sidebar-expanded') === 'true';
+    const apply = () => {
+      sidebar.classList.toggle('expanded', expanded);
+      toggle.setAttribute('aria-expanded', String(expanded));
+    };
+    apply();
+    toggle.addEventListener('click', () => {
+      expanded = !expanded;
+      localStorage.setItem('dsr-sidebar-expanded', String(expanded));
+      apply();
+    });
+  }
+
   function bindEvents() {
+    initSidebarToggle();
     $('status-overlay').addEventListener('click', () => {
       window.clearTimeout(showStatusOverlay.timer);
       $('status-overlay').hidden = true;
