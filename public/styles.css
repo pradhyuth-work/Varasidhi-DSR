@@ -56,7 +56,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .sidebar { width: 72px; background: var(--teal-deep); color: #e8f0e9; display: flex; flex-direction: column; padding: 28px 14px 20px; flex: 0 0 72px; overflow: hidden; transition: width .22s ease, flex-basis .22s ease, padding .22s ease; }
 .sidebar.expanded { width: 232px; flex-basis: 232px; padding: 28px 18px 20px; }
 .brand { display: flex; gap: 11px; align-items: center; padding: 0 0 45px; }
-.brand strong { display: block; color: #f4f2e9; letter-spacing: -.04em; font-size: 17px; font-weight: 700; white-space: nowrap; }
+.brand strong { display: block; color: #f4f2e9; letter-spacing: -.04em; font-size: 17px; font-weight: 700; line-height: 1.18; white-space: nowrap; }
 .brand strong span { color: #dca657; }
 .brand small { display: block; color: #8caeb0; letter-spacing: .12em; font: 8px var(--mono); margin-top: 3px; white-space: nowrap; }
 .brand-text { overflow: hidden; }
