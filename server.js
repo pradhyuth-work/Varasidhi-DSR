@@ -1921,6 +1921,57 @@ app.get("/api/reports/product-sales", async (req, res) => {
   }
 });
 
+app.get("/api/reports/sku-matrix", async (req, res) => {
+  try {
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.from) ? req.query.from : `${today().slice(0, 7)}-01`;
+    const to   = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.to)   ? req.query.to   : today();
+
+    const products = await database.all(`SELECT id, name FROM products ORDER BY id`);
+    const profiles = await database.all(`SELECT id, name FROM profiles ORDER BY name`);
+
+    // Flat qty-sold totals per profile per product for the range — pivoted into
+    // a matrix below so every profile and every product appears, even at zero.
+    const sales = await database.all(
+      `SELECT s.buyer_id AS profile_id, i.product_id,
+              COALESCE(SUM(i.qty_sold), 0) AS qty
+         FROM dsr_items i
+         JOIN dsr_sessions s ON s.id = i.dsr_id
+        WHERE s.status = 'SETTLED' AND s.date >= ? AND s.date <= ?
+        GROUP BY s.buyer_id, i.product_id`,
+      [from, to],
+    );
+
+    const qtyByProfile = new Map();
+    for (const row of sales) {
+      if (!qtyByProfile.has(row.profile_id)) qtyByProfile.set(row.profile_id, new Map());
+      qtyByProfile.get(row.profile_id).set(row.product_id, Number(row.qty));
+    }
+
+    const rows = profiles
+      .map((pr) => {
+        const qtyMap = qtyByProfile.get(pr.id);
+        const qty = products.map((p) => qtyMap?.get(p.id) ?? 0);
+        const total_qty = qty.reduce((a, b) => a + b, 0);
+        return { profile_id: pr.id, buyer_name: pr.name, qty, total_qty };
+      })
+      .sort((a, b) => b.total_qty - a.total_qty || a.profile_id - b.profile_id);
+
+    const columnTotals = products.map((_, idx) => rows.reduce((sum, r) => sum + r.qty[idx], 0));
+    const grandTotal = columnTotals.reduce((a, b) => a + b, 0);
+
+    res.json({
+      filters: { from, to },
+      products: products.map((p) => ({ id: p.id, name: p.name })),
+      rows,
+      columnTotals,
+      grandTotal,
+    });
+  } catch (error) {
+    console.error("Failed to generate SKU matrix report", error);
+    fail(res, 500, "Unable to generate the SKU matrix report.");
+  }
+});
+
 app.get("/api/reports/payments", async (req, res) => {
   try {
     const profileId = positiveInteger(req.query?.profileId) ?? null;

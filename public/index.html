@@ -446,6 +446,7 @@
                 <div class="admin-tabs sub-tabs" role="tablist" aria-label="Sales report views">
                   <button class="admin-tab active" type="button" data-sales-view="product">By product</button>
                   <button class="admin-tab" type="button" data-sales-view="buyer">By buyer</button>
+                  <button class="admin-tab" type="button" data-sales-view="matrix">SKU matrix</button>
                 </div>
 
                 <div id="report-products-section" hidden>
@@ -476,6 +477,27 @@
                     <table class="route-table admin-table">
                       <thead><tr><th>BUYER</th><th>SESSIONS</th><th>TOTAL SALES</th><th>PAYMENTS RECEIVED</th><th>NET DUE</th></tr></thead>
                       <tbody id="report-buyer-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div id="report-matrix-section" hidden>
+                  <div class="admin-section-heading report-buyer-heading">
+                    <div>
+                      <div class="section-kicker"><span class="section-number">03</span><span>SKU MATRIX</span></div>
+                      <h2>All profiles — SKU-wise</h2>
+                      <p class="section-desc">Quantity sold per profile per product for the selected period, across every profile.</p>
+                    </div>
+                    <button class="button button-quiet compact-button inv-dl-btn" type="button" id="matrix-download-csv" disabled>
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                    </button>
+                  </div>
+                  <p id="matrix-loading" class="report-status-msg" hidden>Loading SKU matrix…</p>
+                  <p id="matrix-empty" class="report-status-msg" hidden>No settled sessions found for this period.</p>
+                  <div class="table-shell" id="matrix-table-shell" hidden>
+                    <table class="route-table admin-table" id="matrix-table">
+                      <thead id="matrix-thead"></thead>
+                      <tbody id="matrix-tbody"></tbody>
                     </table>
                   </div>
                 </div>

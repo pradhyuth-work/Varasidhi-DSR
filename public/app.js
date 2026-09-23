@@ -32,6 +32,8 @@
     inventoryLoading: false,
     profileStockData: null,
     profileStockLoading: false,
+    skuMatrixData: null,
+    skuMatrixLoading: false,
     performanceData: null,
     performanceLoading: false,
     settlementData: null,
@@ -449,7 +451,7 @@
       document.querySelectorAll('[data-inv-view]').forEach((tab) => {
         tab.classList.toggle('active', tab.dataset.invView === state.invView);
       });
-      renderReport(); renderInventoryReport(); renderProfileStock();
+      renderReport(); renderInventoryReport(); renderProfileStock(); renderSkuMatrix();
     }
     if (state.adminTab === 'payments-report') { renderPaymentsReport(); }
   }
@@ -600,6 +602,7 @@
     setHidden('report-products-section', !hasResults || state.salesView !== 'product');
     setHidden('report-buyer-section', !hasResults || buyerViewBlocked || state.salesView !== 'buyer');
     setHidden('report-buyer-unavailable', !buyerViewBlocked || state.salesView !== 'buyer');
+    setHidden('report-matrix-section', state.salesView !== 'matrix');
     $('report-download-csv').disabled = !hasResults;
 
     if (!hasResults || loading) return;
@@ -639,6 +642,71 @@
         </tr>`;
       }).join('');
     }
+  }
+
+  function renderSkuMatrix() {
+    if (!$('matrix-thead')) return;
+    const loading = state.skuMatrixLoading;
+    const data = state.skuMatrixData;
+    const hasResults = Boolean(data) && data.grandTotal > 0;
+
+    setHidden('matrix-loading', !loading);
+    setHidden('matrix-empty', loading || hasResults || !data);
+    setHidden('matrix-table-shell', loading || !hasResults);
+    $('matrix-download-csv').disabled = !hasResults;
+
+    if (!data || loading || !hasResults) return;
+
+    const { products, rows, columnTotals, grandTotal } = data;
+
+    $('matrix-thead').innerHTML = `<tr><th>BUYER</th>${products.map((p) => `<th>${escapeHtml(p.name)}</th>`).join('')}<th>TOTAL</th></tr>`;
+
+    const bodyRows = rows.map((r) => `
+      <tr>
+        <td><div class="product-cell"><span class="profile-mini">${escapeHtml(initials(r.buyer_name))}</span><span>${escapeHtml(r.buyer_name)}</span></div></td>
+        ${r.qty.map((q) => `<td class="route-stock">${q > 0 ? integer(q) : '—'}</td>`).join('')}
+        <td class="route-stock"><strong>${integer(r.total_qty)}</strong></td>
+      </tr>`).join('');
+    const totalsRow = `
+      <tr>
+        <td><strong>TOTAL</strong></td>
+        ${columnTotals.map((c) => `<td class="route-stock"><strong>${integer(c)}</strong></td>`).join('')}
+        <td class="route-stock"><strong>${integer(grandTotal)}</strong></td>
+      </tr>`;
+    $('matrix-tbody').innerHTML = bodyRows + totalsRow;
+  }
+
+  async function loadSkuMatrix() {
+    if (!$('matrix-thead')) return;
+    const from = $('report-from').value || firstOfMonth();
+    const to   = $('report-to').value   || todayIso();
+    state.skuMatrixLoading = true;
+    renderSkuMatrix();
+    try {
+      state.skuMatrixData = await request(`/api/reports/sku-matrix?${new URLSearchParams({ from, to })}`);
+    } catch (error) {
+      adminMessage(error.message, true);
+      state.skuMatrixData = null;
+    } finally {
+      state.skuMatrixLoading = false;
+      renderSkuMatrix();
+    }
+  }
+
+  function downloadSkuMatrixCsv() {
+    if (!state.skuMatrixData) return;
+    const { filters, products, rows, columnTotals, grandTotal } = state.skuMatrixData;
+    const q = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;
+    const csv = [
+      q('SKU-wise Sales Matrix — All Profiles'),
+      `${q('Period')},${q(`${filters.from} to ${filters.to}`)}`,
+      '',
+      [q('Buyer'), ...products.map((p) => q(p.name)), q('Total')].join(','),
+      ...rows.map((r) => [q(r.buyer_name), ...r.qty.map((v) => q(v)), q(r.total_qty)].join(',')),
+      [q('TOTAL'), ...columnTotals.map((v) => q(v)), q(grandTotal)].join(','),
+    ];
+    downloadCsvBlob(csv.join('\n'), `sku-matrix-${filters.from}-to-${filters.to}.csv`);
+    toast('SKU matrix downloaded.');
   }
 
   function downloadReportCsv() {
@@ -3108,6 +3176,7 @@
         if (!state.reportData && !state.reportLoading) loadReport();
         if (!state.inventoryData && !state.inventoryLoading) loadInventoryReport();
         if (!state.profileStockData && !state.profileStockLoading) loadProfileStock();
+        if (!state.skuMatrixData && !state.skuMatrixLoading) loadSkuMatrix();
       }
       if (tab.dataset.adminTab === 'payments-report') {
         if (!$('pr-from').value) $('pr-from').value = firstOfMonth();
@@ -3165,8 +3234,9 @@
     $('bulk-profile-download-template').addEventListener('click', downloadBulkProfileTemplateCsv);
     $('bulk-profile-upload-input').addEventListener('change', handleBulkProfileFileSelected);
     $('confirm-bulk-profile').addEventListener('click', confirmBulkProfile);
-    $('apply-report-filters').addEventListener('click', loadReport);
+    $('apply-report-filters').addEventListener('click', () => { loadReport(); state.skuMatrixData = null; loadSkuMatrix(); });
     $('report-download-csv').addEventListener('click', downloadReportCsv);
+    $('matrix-download-csv').addEventListener('click', downloadSkuMatrixCsv);
     $('apply-inv-filters').addEventListener('click', loadInventoryReport);
     $('inv-bills-download-csv').addEventListener('click', downloadBillsCsv);
     $('inv-stock-download-csv').addEventListener('click', downloadInventoryCsv);
