@@ -21,6 +21,8 @@
     loadDrafts: {},
     closingDrafts: {},
     closingSaved: false,
+    expandedLoadProduct: null,
+    loadHistory: {},
     lastDispatch: null,
     dsrTab: 'dispatch',
     reportGroup: 'sales',
@@ -243,6 +245,7 @@
     state.loading = true;
     state.dsrTab = 'dispatch';
     state.session = null; state.items = []; state.payments = []; state.loadDrafts = {}; state.closingDrafts = {}; state.closingSaved = false;
+    state.expandedLoadProduct = null; state.loadHistory = {};
     render();
     try {
       const payload = await request(`/api/dsr/active/${encodeURIComponent(buyerId)}`);
@@ -1529,7 +1532,10 @@
       const dispatchedCell = (state.role === 'Admin' && !settled)
         ? `<div class="stock-cell"><span data-route-stock-for="${escapeHtml(item.product_id)}">${integer(routeStock)}</span><button class="button button-quiet compact-button loaded-adjust" type="button" data-loaded-adjust="${escapeHtml(item.product_id)}">Edit</button></div>`
         : `<span data-route-stock-for="${escapeHtml(item.product_id)}">${integer(routeStock)}</span>`;
-      return `<tr data-row-product="${escapeHtml(item.product_id)}"><td><div class="product-cell"><span class="product-index">${String(item.product_id).padStart(2, '0')}</span><span>${escapeHtml(item.product_name || `Product ${item.product_id}`)}</span></div></td><td class="stock-quiet">${integer(item.warehouse_stock)}</td><td>${integer(item.opening_stock)}</td><td class="stock-quiet">${integer(item.loaded_stock)}</td><td><input class="number-input load-input" data-product-id="${escapeHtml(item.product_id)}" type="number" min="0" step="1" value="${draft}" ${settled ? 'disabled' : ''} aria-label="Additional load for ${escapeHtml(item.product_name)}" data-testid="input-load-${escapeHtml(item.product_id)}" /></td><td class="route-stock">${dispatchedCell}</td><td class="price">${currency(item.unit_price)}</td></tr>`;
+      const isExpanded = String(state.expandedLoadProduct) === String(item.product_id);
+      const previouslyLoadedCell = `<button class="load-history-toggle" type="button" data-toggle-history="${escapeHtml(item.product_id)}" aria-expanded="${isExpanded}"><span>${integer(item.loaded_stock)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>`;
+      const row = `<tr data-row-product="${escapeHtml(item.product_id)}"><td><div class="product-cell"><span class="product-index">${String(item.product_id).padStart(2, '0')}</span><span>${escapeHtml(item.product_name || `Product ${item.product_id}`)}</span></div></td><td class="stock-quiet">${integer(item.warehouse_stock)}</td><td>${integer(item.opening_stock)}</td><td class="stock-quiet">${previouslyLoadedCell}</td><td><input class="number-input load-input" data-product-id="${escapeHtml(item.product_id)}" type="number" min="0" step="1" value="${draft}" ${settled ? 'disabled' : ''} aria-label="Additional load for ${escapeHtml(item.product_name)}" data-testid="input-load-${escapeHtml(item.product_id)}" /></td><td class="route-stock">${dispatchedCell}</td><td class="price">${currency(item.unit_price)}</td></tr>`;
+      return row + (isExpanded ? renderLoadHistoryRow(item.product_id) : '');
     }).join('') : '<tr><td colspan="7">No products are attached to this route.</td></tr>';
     $('closing-body').innerHTML = state.items.length ? state.items.map((item, index) => {
       const routeStock = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0) + Number(state.loadDrafts[item.product_id] || 0);
@@ -1548,6 +1554,48 @@
     $('settlement-attribution').textContent = attributionText(
       session.created_by, session.created_at, session.updated_by, session.updated_at,
     );
+  }
+
+  // "Previously loaded" is a single running total; this renders the individual,
+  // timestamped load-in entries (from `dispatches`) that add up to it, for
+  // whichever one product is currently expanded.
+  function renderLoadHistoryRow(productId) {
+    const entries = state.loadHistory[productId];
+    let body;
+    if (!entries) {
+      body = '<p class="report-status-msg">Loading history…</p>';
+    } else if (entries.error) {
+      body = `<p class="report-status-msg">${escapeHtml(entries.error)}</p>`;
+    } else if (!entries.length) {
+      body = '<p class="report-status-msg">No load-in history yet.</p>';
+    } else {
+      body = `<table>
+        <thead><tr><th>DATE</th><th>TIME</th><th>QTY LOADED</th><th>BY</th></tr></thead>
+        <tbody>${entries.map((entry) => `
+          <tr>
+            <td>${dateLabel(entry.created_at)}</td>
+            <td>${timeLabel(entry.created_at)}</td>
+            <td class="route-stock">${integer(entry.qty)}</td>
+            <td>${escapeHtml(entry.created_by || '—')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+    }
+    return `<tr class="load-history-row" data-history-for="${escapeHtml(productId)}"><td colspan="7"><div class="load-history-panel">${body}</div></td></tr>`;
+  }
+
+  async function toggleLoadHistory(productId) {
+    const key = String(productId);
+    state.expandedLoadProduct = state.expandedLoadProduct === key ? null : key;
+    renderDashboard();
+    if (state.expandedLoadProduct !== key || state.loadHistory[key]) return;
+    try {
+      const data = await request(`/api/dsr/${state.session.id}/dispatches/${productId}`);
+      state.loadHistory[key] = data.rows;
+    } catch (error) {
+      state.loadHistory[key] = { error: error.message };
+    }
+    if (state.expandedLoadProduct === key) renderDashboard();
   }
 
   function updateTotals(itemById = new Map(state.items.map((item) => [Number(item.product_id), item]))) {
@@ -1618,6 +1666,7 @@
       state.loadDrafts = {};
       state.closingDrafts = {};
       state.closingSaved = false;
+      state.loadHistory = {};
       hydratePayload(payload);
       showStatusOverlay('success', 'Saved');
       announce('Dispatch recorded for this route.');
@@ -3308,6 +3357,8 @@
       if (stockButton) openStockAdjust(stockButton.dataset.stockAdjust);
       const loadedAdjustButton = event.target.closest('[data-loaded-adjust]');
       if (loadedAdjustButton) openLoadedAdjust(loadedAdjustButton.dataset.loadedAdjust);
+      const historyToggle = event.target.closest('[data-toggle-history]');
+      if (historyToggle) toggleLoadHistory(historyToggle.dataset.toggleHistory);
       const pidButton = event.target.closest('[data-product-id].pid-save');
       if (pidButton) changeProductId(pidButton.dataset.productId);
       const balanceButton = event.target.closest('[data-balance-adjust]');

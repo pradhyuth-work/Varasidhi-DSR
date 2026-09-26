@@ -1116,6 +1116,24 @@ app.get("/api/dsr/active/:buyerId", async (req, res) => {
   }
 });
 
+app.get("/api/dsr/:dsrId/dispatches/:productId", async (req, res) => {
+  const dsrId = positiveInteger(req.params.dsrId);
+  const productId = positiveInteger(req.params.productId);
+  if (dsrId === null || productId === null) return fail(res, 400, "A valid DSR and product id are required.");
+  try {
+    const rows = await database.all(
+      `SELECT qty, created_by, created_at FROM dispatches
+        WHERE dsr_id = ? AND product_id = ?
+        ORDER BY created_at DESC, id DESC`,
+      [dsrId, productId],
+    );
+    res.json({ rows });
+  } catch (error) {
+    console.error("Failed to load dispatch history", error);
+    fail(res, 500, "Unable to load dispatch history.");
+  }
+});
+
 app.post("/api/dsr/load-in", async (req, res) => {
   const buyerId = positiveInteger(req.body?.buyerId);
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
