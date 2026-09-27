@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#153d42" />
     <title>DSR · Route Operations</title>
+    <link rel="icon" type="image/png" href="/brand-mark.png" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div id="login-screen" class="login-screen">
       <form id="login-form" class="login-card" autocomplete="on">
         <div class="login-brand">
-          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="brand-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" /></div>
           <div><strong>Varasidhi Enterprises</strong><small>DSR ROUTE SYSTEM</small></div>
         </div>
         <h1>Sign in</h1>
@@ -23,31 +24,33 @@
       </form>
     </div>
     <div id="app" class="app-shell">
-      <aside class="sidebar" aria-label="Primary navigation">
+      <aside class="sidebar" id="app-sidebar" aria-label="Primary navigation">
         <div class="brand">
           <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-testid="button-sidebar-toggle">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
-          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-          <div class="brand-text"><strong>Varasidhi<br>Enterprises</strong><small>FIELD OPERATIONS</small></div>
+          <div class="brand-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" /></div>
+          <div class="brand-text"><strong>Varasidhi<br>Enterprises</strong><small>GT · FIELD OPERATIONS</small></div>
         </div>
         <nav class="nav-list">
-          <button id="nav-dashboard" class="nav-item active" type="button" data-nav="dashboard" data-testid="button-nav-dashboard">
+          <button id="nav-dashboard" class="nav-item active" type="button" data-nav="dashboard" data-testid="button-nav-dashboard" title="Today’s dispatch">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
             <span>Today’s dispatch</span>
           </button>
-          <button id="nav-reports" class="nav-item" type="button" data-nav="reports" data-testid="button-nav-reports">
+          <button id="nav-reports" class="nav-item" type="button" data-nav="reports" data-testid="button-nav-reports" title="Route reports">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>
             <span>Route reports</span>
           </button>
         </nav>
+        <div class="sidebar-divider"></div>
         <div class="sidebar-bottom">
-          <div class="rail-note">
-            <span class="note-dot"></span>
-            <div><b>Warehouse live</b><small>Last sync <span id="last-sync">—</span></small></div>
+          <div class="rail-status" title="Warehouse live">
+            <span class="status-dot"></span>
+            <div><b>Warehouse live</b><small>Synced <span id="last-sync">—</span></small></div>
           </div>
-          <div class="user-line">
-            <div class="avatar">SM</div><div><b>Store Manager</b><small>Operations desk</small></div>
+          <div class="rail-user" title="Signed in">
+            <div class="avatar" id="sidebar-avatar">SM</div>
+            <div><b id="sidebar-role-label">Store Manager</b><small id="sidebar-role-sub">Operations desk</small></div>
           </div>
         </div>
       </aside>

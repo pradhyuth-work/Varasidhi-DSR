@@ -278,6 +278,13 @@
     const profile = selectedProfile();
     const hasSession = Boolean(state.session);
     document.body.classList.toggle('admin-view', state.view === 'admin');
+    // Store Manager / User sessions have nothing to navigate to in the rail —
+    // the topbar view switcher already covers it — so it carries only the brand.
+    const isAdmin = state.role === 'Admin';
+    $('app-sidebar').classList.toggle('branding-only', !isAdmin);
+    $('sidebar-avatar').textContent = isAdmin ? 'AD' : 'SM';
+    $('sidebar-role-label').textContent = isAdmin ? 'Admin' : 'Store Manager';
+    $('sidebar-role-sub').textContent = isAdmin ? 'Full access' : 'Operations desk';
     $('view-admin').hidden = state.role !== 'Admin';
     $('view-dsr').classList.toggle('active', state.view === 'dsr');
     $('view-admin').classList.toggle('active', state.view === 'admin');
