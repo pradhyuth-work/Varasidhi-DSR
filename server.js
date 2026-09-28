@@ -8,6 +8,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 const app = express();
 
+// PWA install support. Both files also live in public/, so these must be
+// registered BEFORE express.static below — otherwise static would already
+// serve them (with its own default headers) and these handlers would never
+// run. res.sendFile()'s own default Cache-Control is applied after res.set(),
+// so overrides must go through its `headers` option instead to actually stick.
+app.get("/manifest.webmanifest", (_req, res) => {
+  res.sendFile(path.join(publicDir, "manifest.webmanifest"), {
+    headers: { "Content-Type": "application/manifest+json" },
+  });
+});
+app.get("/sw.js", (_req, res) => {
+  res.sendFile(path.join(publicDir, "sw.js"), {
+    headers: {
+      "Content-Type": "application/javascript",
+      "Cache-Control": "no-cache",
+      "Service-Worker-Allowed": "/",
+    },
+  });
+});
+
 app.use(express.json({ limit: "100kb" }));
 app.use(express.static(publicDir, { extensions: ["html"] }));
 
