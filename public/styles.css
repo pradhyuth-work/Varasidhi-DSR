@@ -95,13 +95,26 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
    for a top bar instead, see the 1024px query below): icons only, labels
    hidden. */
 @media (min-width: 1025px) {
-  .sidebar:not(.expanded) .nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
+  .sidebar:not(.expanded) .nav-item { justify-content: center; padding-left: 0; padding-right: 0; min-height: 40px; }
   .sidebar:not(.expanded) .nav-item span,
   .sidebar:not(.expanded) .rail-status > div,
   .sidebar:not(.expanded) .rail-user > div { display: none; }
   .sidebar:not(.expanded) .rail-status,
   .sidebar:not(.expanded) .rail-user { justify-content: center; margin: 0; }
   .sidebar:not(.expanded) .nav-item.active:before { display: none; }
+  /* Collapsed admin rail shows only the toggle, the nav icons, and the
+     divider under them — the logo is squeezed against the 76px rail width
+     with nothing to give it room, and the status/user footer has nothing
+     useful to say with its labels hidden, so both are dropped rather than
+     shown half-clipped or half-blank. branding-only (non-admin) sidebars
+     have no toggle/nav to collapse, so they're excluded here and keep
+     showing the logo regardless of the expanded/collapsed preference. */
+  .sidebar:not(.expanded):not(.branding-only) .brand { justify-content: center; padding-bottom: 18px; }
+  .sidebar:not(.expanded):not(.branding-only) .brand-mark { display: none; }
+  .sidebar:not(.expanded):not(.branding-only) .sidebar-bottom { display: none; }
+  /* 30px visual button, widened to a 40px tap target without changing how
+     it looks — the icon inside stays 17px. */
+  .sidebar:not(.expanded):not(.branding-only) .sidebar-toggle { width: 40px; height: 40px; }
 }
 /* Store Manager / User sessions have nothing left to navigate to in here (the
    topbar already switches views) — the rail exists purely to carry the brand,
