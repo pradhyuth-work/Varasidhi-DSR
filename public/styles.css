@@ -8,7 +8,11 @@
   --ink-muted: #7c8d89;
   --teal: #1f6764;
   --teal-deep: #153d42;
-  --paper: #f5f5f0;
+  --teal-light: #1f8a8a;
+  --amber-bright: #f2a33a;
+  --info: #3a6ea8;
+  --info-soft: #e1eaf5;
+  --paper: #eef3f2;
   --paper-2: #ffffff;
   /* Tinted panel background (table headers, workflow bar, muted badges) —
      consolidates a handful of near-identical one-off tints into one token. */
@@ -120,7 +124,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .refresh-button:disabled { cursor: default; }
 .refresh-button svg.spinning { animation: spin .7s linear infinite; }
 .page-wrap { max-width: 1410px; margin: 0 auto; padding: 38px clamp(22px, 4vw, 58px) 50px; }.page-heading { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; }.eyebrow { color: var(--ink-muted); font: 10px var(--mono); letter-spacing: .14em; margin: 0 0 7px; }.page-heading h1 { font-size: clamp(27px, 3vw, 37px); letter-spacing: -.055em; margin: 0; line-height: 1.05; font-weight: 700; }.subheading { color: var(--ink-muted); margin: 9px 0 0; font-size: 14px; }.sync-status { color: var(--ink-muted); display: flex; align-items: center; gap: 9px; font-size: 11px; padding-bottom: 5px; }.sync-status .pulse { width: 6px; height: 6px; background: #7ab397; }
-.profile-panel { background: var(--teal); border-radius: 10px; padding: 23px 26px; color: #f4f4eb; display: flex; align-items: center; gap: 24px; justify-content: space-between; box-shadow: 0 10px 25px rgba(31,103,100,.14); margin-bottom: 25px; position: relative; overflow: hidden; }.profile-panel:after { content: ''; position: absolute; width: 260px; height: 260px; right: 16%; top: -190px; border: 1px solid rgba(236,243,229,.11); border-radius: 50%; box-shadow: 0 0 0 28px rgba(236,243,229,.025), 0 0 0 57px rgba(236,243,229,.02); pointer-events: none; }.profile-primary { display: flex; align-items: center; gap: 15px; position: relative; z-index: 1; }.profile-badge { width: 45px; height: 45px; display: grid; place-items: center; background: #e4ba73; color: var(--teal-deep); border-radius: 7px; font: 14px var(--mono); font-weight: 700; }.profile-title-line { display: flex; gap: 13px; align-items: center; }.profile-title-line h2 { margin: 0; font-size: 21px; letter-spacing: -.035em; }.profile-meta { color: #b6d1ca; margin: 4px 0 0; font-size: 12px; }.profile-balance-badge { position: relative; z-index: 1; min-width: 152px; padding: 9px 13px; border: 1px solid rgba(255,255,255,.18); background: rgba(7,45,48,.24); border-radius: 6px; }.profile-balance-badge span { display: block; color: #b6d1ca; font: 8px var(--mono); letter-spacing: .1em; }.profile-balance-badge strong { display: block; color: #fff2d2; font: 700 17px var(--mono); margin-top: 3px; }.profile-controls { width: 230px; position: relative; z-index: 1; }.field-label { display: block; color: #b6d1ca; font: 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 6px; }.select-wrap { position: relative; }.select-wrap select { appearance: none; width: 100%; border: 1px solid rgba(225,240,232,.25); background: rgba(8,46,49,.25); color: #fff; border-radius: 5px; padding: 10px 32px 10px 11px; font-size: 12px; }.select-wrap svg { pointer-events: none; position: absolute; right: 9px; top: 11px; width: 15px; color: #b9d2c9; }.status-chip { display: inline-flex; align-items: center; padding: 4px 7px 3px; border-radius: 3px; font: 9px var(--mono); letter-spacing: .04em; font-weight: 700; }.status-chip.status-progress { color: #24524c; background: #d7eadb; }.status-chip.status-settled { color: #315975; background: #d5e6ef; }.status-chip.status-empty { color: var(--ink-muted); background: #e1e8e2; }
+.profile-panel { background: var(--teal); border-radius: 10px; padding: 23px 26px; color: #f4f4eb; display: flex; align-items: center; gap: 24px; justify-content: space-between; box-shadow: 0 10px 25px rgba(31,103,100,.14); margin-bottom: 25px; position: relative; overflow: hidden; }.profile-panel:after { content: ''; position: absolute; width: 260px; height: 260px; right: 16%; top: -190px; border: 1px solid rgba(236,243,229,.11); border-radius: 50%; box-shadow: 0 0 0 28px rgba(236,243,229,.025), 0 0 0 57px rgba(236,243,229,.02); pointer-events: none; }.profile-primary { display: flex; align-items: center; gap: 15px; position: relative; z-index: 1; }.profile-badge { width: 45px; height: 45px; display: grid; place-items: center; background: #e4ba73; color: var(--teal-deep); border-radius: 7px; font: 14px var(--mono); font-weight: 700; }.profile-title-line { display: flex; gap: 13px; align-items: center; }.profile-title-line h2 { margin: 0; font-size: 21px; letter-spacing: -.035em; }.profile-meta { color: #b6d1ca; margin: 4px 0 0; font-size: 12px; }.profile-balance-badge { position: relative; z-index: 1; min-width: 152px; padding: 9px 13px; border: 1px solid rgba(255,255,255,.18); background: rgba(7,45,48,.24); border-radius: 6px; }.profile-balance-badge span { display: block; color: #b6d1ca; font: 8px var(--mono); letter-spacing: .1em; }.profile-balance-badge strong { display: block; color: #fff2d2; font: 700 17px var(--mono); margin-top: 3px; }.profile-controls { width: 230px; position: relative; z-index: 1; }.field-label { display: block; color: #b6d1ca; font: 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 6px; }.select-wrap { position: relative; }.select-wrap select, .select-wrap input.combobox-input { appearance: none; width: 100%; border: 1px solid rgba(225,240,232,.25); background: rgba(8,46,49,.25); color: #fff; border-radius: 5px; padding: 10px 32px 10px 11px; font-size: 12px; }
+.select-wrap input.combobox-input::placeholder { color: #b9d2c9; }.select-wrap svg { pointer-events: none; position: absolute; right: 9px; top: 11px; width: 15px; color: #b9d2c9; }.status-chip { display: inline-flex; align-items: center; padding: 4px 7px 3px; border-radius: 3px; font: 9px var(--mono); letter-spacing: .04em; font-weight: 700; }.status-chip.status-progress { color: #24524c; background: #d7eadb; }.status-chip.status-settled { color: #315975; background: #d5e6ef; }.status-chip.status-empty { color: var(--ink-muted); background: #e1e8e2; }
 .inline-feedback { min-height: 0; color: #2b665b; font-size: 12px; margin: -10px 0 16px; }.inline-feedback:empty { display: none; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 25px; }.metric-card { background: var(--paper-2); border: 1px solid var(--line); border-radius: 8px; padding: 17px 18px 16px; min-height: 119px; box-shadow: var(--shadow-xs); transition: box-shadow .18s, border-color .18s; }.metric-card:hover { box-shadow: var(--shadow-sm); border-color: var(--line-strong); }.metric-card.metric-balance { background: var(--highlight); }.metric-top { color: var(--ink-muted); font: 10px var(--mono); display: flex; justify-content: space-between; align-items: center; }.metric-icon { color: var(--teal); font: 15px var(--mono); }.metric-icon.teal { color: #397f77; }.metric-icon.amber { color: #be7b2e; }.metric-card strong { display: block; margin: 11px 0 5px; font: 700 23px var(--mono); letter-spacing: -.06em; color: var(--ink); }.metric-card small { color: var(--ink-muted); font-size: 11px; }
 .workflow-bar { display: flex; align-items: center; gap: 15px; padding: 17px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-sunken); margin-bottom: 31px; }.workflow-step { display: flex; align-items: center; gap: 11px; color: #8a9993; }.workflow-step > span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 50%; border: 1px solid #bdc9c1; font: 10px var(--mono); }.workflow-step.active { color: var(--teal); }.workflow-step.active > span { color: #f8f3e5; background: var(--teal); border-color: var(--teal); }.workflow-step b { display: block; font-size: 12px; }.workflow-step small { display: block; font-size: 10px; margin-top: 2px; }.workflow-line { height: 1px; flex: 0 1 85px; background: #cbd5cc; }.workflow-caption { margin-left: auto; text-align: right; }.workflow-caption span { display: block; color: var(--teal); font: 10px var(--mono); font-weight: 700; }.workflow-caption small { color: var(--ink-muted); font-size: 10px; }
@@ -897,8 +902,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .form-field-label { display: block; color: var(--ink); font-size: 12px; font-weight: 600; margin: 14px 0 8px; }
 .purchase-lines { display: grid; gap: 8px; }
 .purchase-line { display: grid; grid-template-columns: 1fr 92px 28px; gap: 8px; align-items: center; }
-.purchase-line select { width: 100%; min-width: 0; border: 1px solid #ccd7cf; border-radius: 5px; background: #fff; color: var(--teal-deep); padding: 8px 7px; font-size: 12px; }
-.purchase-line select:focus { border-color: var(--teal); outline: none; box-shadow: 0 0 0 3px rgba(31,103,100,.11); }
+.purchase-line select, .purchase-line input.combobox-input { width: 100%; min-width: 0; border: 1px solid #ccd7cf; border-radius: 5px; background: #fff; color: var(--teal-deep); padding: 8px 7px; font-size: 12px; }
+.purchase-line select:focus, .purchase-line input.combobox-input:focus { border-color: var(--teal); outline: none; box-shadow: 0 0 0 3px rgba(31,103,100,.11); }
+.purchase-line .combobox-wrap { min-width: 0; }
 .purchase-line .number-input { width: 100%; }
 .purchase-line-remove[hidden] { display: none; }
 .purchase-add-line { margin-top: 10px; }
@@ -922,3 +928,44 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .load-history-panel th:not(:first-child), .load-history-panel td:not(:first-child) { text-align: right; }
 .load-history-panel td { padding: 6px 10px; border-top: 1px solid var(--line); color: var(--ink-muted); font: 12px var(--mono); }
 .load-history-panel .report-status-msg { margin: 0; padding: 12px; }
+
+/* ---- Searchable combobox (progressive enhancement over a native <select>) - */
+.combobox-wrap { position: relative; width: 100%; min-width: 0; }
+.combobox-native { display: none; }
+.combobox-input { cursor: text; text-overflow: ellipsis; }
+.combobox-input:disabled { cursor: default; opacity: .65; }
+.combobox-panel {
+  position: fixed; z-index: 60; max-height: 272px; overflow-y: auto;
+  background: var(--paper-2); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: var(--shadow-md); padding: 4px; animation: fade .12s ease-out;
+}
+.combobox-option {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; border: 0; border-left: 2px solid transparent; background: transparent;
+  text-align: left; padding: 9px 9px 9px 7px; border-radius: 5px; font-size: 12px;
+  color: var(--ink); transition: background .12s, border-color .12s;
+}
+.combobox-option:hover { background: var(--mint); }
+.combobox-option.active { background: var(--mint); border-left-color: var(--teal-light); color: var(--teal-deep); }
+.combobox-option.disabled { color: var(--ink-muted); cursor: not-allowed; opacity: .55; }
+.combobox-option.disabled:hover { background: transparent; }
+.combobox-option svg { width: 14px; height: 14px; color: var(--teal-light); flex: 0 0 auto; }
+.combobox-empty { margin: 0; padding: 12px 10px; color: var(--ink-muted); font-size: 12px; text-align: center; }
+
+/* ---- Tinted stat cards -------------------------------------------------- */
+/* Pale, colour-coded backgrounds with a coloured top edge, layered onto
+   .metric-card / .report-stat without touching their existing structure. */
+.stat-tint-teal   { background: var(--mint) !important; box-shadow: inset 0 2px 0 var(--teal), var(--shadow-xs); }
+.stat-tint-green  { background: var(--success-soft) !important; box-shadow: inset 0 2px 0 var(--success), var(--shadow-xs); }
+.stat-tint-amber  { background: var(--amber-soft) !important; box-shadow: inset 0 2px 0 var(--amber-bright), var(--shadow-xs); }
+.stat-tint-blue   { background: var(--info-soft) !important; box-shadow: inset 0 2px 0 var(--info), var(--shadow-xs); }
+
+/* ---- Status badge palette (green / amber / red / blue) ------------------ */
+.badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 3px; font: 700 9px var(--mono); letter-spacing: .05em; }
+.badge-green { background: var(--success-soft); color: var(--success); }
+.badge-amber { background: var(--amber-soft); color: #7a5a22; }
+.badge-red   { background: var(--red-soft); color: var(--red); }
+.badge-blue  { background: var(--info-soft); color: var(--info); }
+
+/* ---- Tab-switch fade (re-triggered by JS on every switch) --------------- */
+.tab-fade-in { animation: fade .16s ease-out; }

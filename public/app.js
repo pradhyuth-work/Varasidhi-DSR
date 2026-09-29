@@ -2039,6 +2039,7 @@
       + `<input class="purchase-line-qty number-input" type="number" min="1" step="1" required placeholder="Qty" aria-label="Quantity added" />`
       + `<button class="delete-payment purchase-line-remove" type="button" aria-label="Remove this line">×</button>`;
     container.appendChild(row);
+    enhanceSelectAsCombobox(row.querySelector('.purchase-line-product'), { placeholder: 'Search products…', emptyText: 'No products found' });
     updatePurchaseLineControls();
     if (focusIt) row.querySelector('.purchase-line-qty').focus();
   }
@@ -3199,6 +3200,158 @@
     });
   }
 
+  // ---- Searchable combobox: progressive enhancement over a native <select> --
+  // The <select> stays the source of truth (value, options, disabled state,
+  // and every existing 'change' listener wired in bindEvents) — this only
+  // layers a type-to-filter UI on top. Whatever already populates or updates
+  // the select keeps working untouched; a MutationObserver here just mirrors
+  // it into the visible input.
+  function enhanceSelectAsCombobox(select, opts = {}) {
+    if (!select || select.dataset.comboboxReady) return;
+    select.dataset.comboboxReady = '1';
+    const emptyText = opts.emptyText || 'No matches';
+    const MAX_PANEL_HEIGHT = 272;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'combobox-wrap';
+    select.parentNode.insertBefore(wrap, select);
+    wrap.appendChild(select);
+    select.classList.add('combobox-native');
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    // Deliberately not inheriting select.className: several selects are found
+    // elsewhere via class-based querySelector (e.g. '.purchase-line-product')
+    // expecting exactly one match per row, and copying that class onto the
+    // input would make it match too. Context-specific look is instead handled
+    // by widening the relevant CSS rule to also target .combobox-input.
+    input.className = ['combobox-input', opts.extraClass].filter(Boolean).join(' ');
+    input.autocomplete = 'off';
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-expanded', 'false');
+    input.setAttribute('aria-haspopup', 'listbox');
+    if (select.getAttribute('aria-label')) input.setAttribute('aria-label', select.getAttribute('aria-label'));
+    wrap.insertBefore(input, select);
+
+    const panel = document.createElement('div');
+    panel.className = 'combobox-panel';
+    panel.hidden = true;
+    document.body.appendChild(panel);
+
+    let query = '';
+    let highlight = 0;
+    let open = false;
+    let optionCache = [];
+
+    const readOptions = () => [...select.options].map((o) => ({ value: o.value, label: o.text, disabled: o.disabled }));
+    const filtered = () => {
+      const q = query.trim().toLowerCase();
+      return q ? optionCache.filter((o) => o.label.toLowerCase().includes(q)) : optionCache;
+    };
+
+    function syncLabel() {
+      const selected = select.options[select.selectedIndex];
+      input.value = selected ? selected.text : '';
+      input.disabled = select.disabled;
+      if (opts.placeholder) input.placeholder = opts.placeholder;
+    }
+
+    function position() {
+      const r = wrap.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - r.bottom;
+      const openUpward = spaceBelow < MAX_PANEL_HEIGHT && r.top > spaceBelow;
+      panel.style.left = `${r.left}px`;
+      panel.style.width = `${r.width}px`;
+      if (openUpward) { panel.style.top = ''; panel.style.bottom = `${window.innerHeight - r.top + 4}px`; }
+      else { panel.style.bottom = ''; panel.style.top = `${r.bottom + 4}px`; }
+    }
+
+    function renderPanel() {
+      const items = filtered();
+      panel.innerHTML = items.length
+        ? items.map((o, i) => `<button type="button" class="combobox-option${i === highlight ? ' active' : ''}${o.disabled ? ' disabled' : ''}" data-value="${escapeHtml(o.value)}" ${o.disabled ? 'disabled' : ''}><span>${escapeHtml(o.label)}</span>${o.value === select.value ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>' : ''}</button>`).join('')
+        : `<p class="combobox-empty">${escapeHtml(emptyText)}</p>`;
+    }
+
+    function openPanel() {
+      if (select.disabled || !select.options.length) return;
+      optionCache = readOptions();
+      query = '';
+      const current = filtered().findIndex((o) => o.value === select.value);
+      highlight = Math.max(0, current);
+      open = true;
+      input.setAttribute('aria-expanded', 'true');
+      position();
+      renderPanel();
+      panel.hidden = false;
+    }
+
+    function closePanel() {
+      open = false;
+      input.setAttribute('aria-expanded', 'false');
+      panel.hidden = true;
+      query = '';
+      syncLabel();
+    }
+
+    function pick(value) {
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      closePanel();
+    }
+
+    input.addEventListener('focus', () => { openPanel(); input.select(); });
+    input.addEventListener('click', () => { if (!open) openPanel(); });
+    input.addEventListener('input', () => {
+      query = input.value;
+      if (!open) openPanel();
+      highlight = 0;
+      renderPanel();
+    });
+    input.addEventListener('keydown', (event) => {
+      if (!open) {
+        if (event.key === 'ArrowDown' || event.key === 'Enter') { event.preventDefault(); openPanel(); }
+        return;
+      }
+      const items = filtered();
+      if (event.key === 'ArrowDown') { event.preventDefault(); highlight = Math.min(highlight + 1, items.length - 1); renderPanel(); }
+      else if (event.key === 'ArrowUp') { event.preventDefault(); highlight = Math.max(highlight - 1, 0); renderPanel(); }
+      else if (event.key === 'Enter') { event.preventDefault(); const o = items[highlight]; if (o && !o.disabled) pick(o.value); }
+      else if (event.key === 'Escape') { closePanel(); input.blur(); }
+      else if (event.key === 'Tab') { closePanel(); }
+    });
+    panel.addEventListener('mousedown', (event) => {
+      const btn = event.target.closest('.combobox-option');
+      if (!btn || btn.disabled) return;
+      event.preventDefault();
+      pick(btn.dataset.value);
+    });
+    document.addEventListener('mousedown', (event) => {
+      if (!open || wrap.contains(event.target) || panel.contains(event.target)) return;
+      closePanel();
+    });
+    window.addEventListener('scroll', () => { if (open) position(); }, true);
+    window.addEventListener('resize', () => { if (open) position(); });
+
+    // The <select>'s options/value/disabled state are still driven entirely by
+    // whatever already populates it elsewhere (render(), refresh functions) —
+    // just mirror that into the visible input instead of duplicating it.
+    new MutationObserver(() => { if (!open) syncLabel(); }).observe(select, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'],
+    });
+
+    syncLabel();
+  }
+
+  // Replays a short fade on a panel each time it's switched to, since toggling
+  // [hidden] alone doesn't retrigger a CSS animation.
+  function fadeIn(el) {
+    if (!el) return;
+    el.classList.remove('tab-fade-in');
+    void el.offsetWidth;
+    el.classList.add('tab-fade-in');
+  }
+
   function bindEvents() {
     initSidebarToggle();
     $('status-overlay').addEventListener('click', () => {
@@ -3224,6 +3377,12 @@
     $('loaded-adjust-modal').addEventListener('click', (event) => { if (event.target === $('loaded-adjust-modal')) closeLoadedAdjust(); });
     $('loaded-adjust-form').addEventListener('submit', submitLoadedAdjust);
     $('buyer-select').addEventListener('change', (event) => loadSession(event.target.value));
+    enhanceSelectAsCombobox($('buyer-select'), { placeholder: 'Search buyers…', emptyText: 'No buyer profiles found' });
+    enhanceSelectAsCombobox($('report-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
+    enhanceSelectAsCombobox($('perf-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
+    enhanceSelectAsCombobox($('pr-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
+    enhanceSelectAsCombobox($('settle-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
+    enhanceSelectAsCombobox($('profile-stock-filter'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found', extraClass: 'filter-select' });
     $('role-select').addEventListener('change', (event) => {
       const chosen = event.target.value;
       if (chosen === 'Admin') {
@@ -3238,10 +3397,11 @@
         toast('Switched to Store Manager.');
       }
     });
-    const goToDsrView = () => { state.view = 'dsr'; render(); };
+    const goToDsrView = () => { state.view = 'dsr'; render(); fadeIn($('dashboard-content')); };
     const goToSettlementView = () => {
       state.view = 'settlement';
       render();
+      fadeIn($('settlement-content'));
       if (!$('settle-from').value) $('settle-from').value = firstOfMonth();
       if (!$('settle-to').value)   $('settle-to').value   = todayIso();
       if (!state.settlementData && !state.settlementLoading) loadSettlement();
@@ -3254,11 +3414,13 @@
       if (state.role !== 'Admin') return;
       state.view = 'admin';
       render();
+      fadeIn($('admin-content'));
       loadAdminData();
     });
     document.querySelectorAll('[data-admin-tab]').forEach((tab) => tab.addEventListener('click', () => {
       state.adminTab = tab.dataset.adminTab;
       renderAdmin();
+      fadeIn($('admin-content'));
       if (tab.dataset.adminTab === 'reports') {
         if (!$('report-from').value)     $('report-from').value     = firstOfMonth();
         if (!$('report-to').value)       $('report-to').value       = todayIso();
@@ -3278,14 +3440,17 @@
     document.querySelectorAll('[data-report-group]').forEach((tab) => tab.addEventListener('click', () => {
       state.reportGroup = tab.dataset.reportGroup;
       renderAdmin();
+      fadeIn($('admin-content'));
     }));
     document.querySelectorAll('[data-sales-view]').forEach((tab) => tab.addEventListener('click', () => {
       state.salesView = tab.dataset.salesView;
       renderAdmin();
+      fadeIn($('admin-content'));
     }));
     document.querySelectorAll('[data-inv-view]').forEach((tab) => tab.addEventListener('click', () => {
       state.invView = tab.dataset.invView;
       renderAdmin();
+      fadeIn($('admin-content'));
     }));
     $('product-form').addEventListener('submit', submitProduct);
     $('profile-form').addEventListener('submit', submitProfile);
@@ -3352,6 +3517,7 @@
     document.querySelectorAll('[data-dsr-tab]').forEach((tab) => tab.addEventListener('click', () => {
       state.dsrTab = tab.dataset.dsrTab;
       renderDashboard();
+      fadeIn($('dispatch-section').hidden ? ($('closing-section').hidden ? $('performance-section') : $('closing-section')) : $('dispatch-section'));
       if (tab.dataset.dsrTab === 'performance') {
         if (!$('perf-from').value) $('perf-from').value = firstOfMonth();
         if (!$('perf-to').value)   $('perf-to').value   = todayIso();
