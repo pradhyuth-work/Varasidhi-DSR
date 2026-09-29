@@ -611,11 +611,11 @@
       [q(summary.total_payments), q(summary.payment_count), q(summary.buyer_count)].join(','),
       [''],
       [q('DAY-WISE PAYMENTS')],
-      [q('Date'), q('Buyer'), q('Method'), q('Reference'), q('Amount')].join(','),
+      [q('Date'), q('Buyer'), q('Method'), q('Reference'), q('Amount'), q('Recorded By')].join(','),
     ];
     for (const day of days) {
       for (const p of day.payments) {
-        rows.push([q(day.date), q(p.buyer_name), q(p.method), q(p.label_info || ''), q(p.amount)].join(','));
+        rows.push([q(day.date), q(p.buyer_name), q(p.method), q(p.label_info || ''), q(p.amount), q(p.created_by || '')].join(','));
       }
     }
     rows.push([''], [q('CURRENT OUTSTANDING BALANCES')]);
