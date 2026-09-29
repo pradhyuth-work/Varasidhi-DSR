@@ -18,6 +18,7 @@
     adminTab: 'masters',
     loading: true,
     busy: false,
+    refreshing: false,
     loadDrafts: {},
     closingDrafts: {},
     closingSaved: false,
@@ -236,6 +237,39 @@
       renderAdmin();
     } catch (error) {
       adminMessage(error.message, true);
+    }
+  }
+
+  // Manual refresh (topbar button): re-pulls profiles, the active buyer's
+  // session, and admin data in place — unlike loadSession/loadProfiles this
+  // never resets drafts or jumps back to the Dispatch tab, so it's safe to
+  // fire while someone has unsaved input on screen.
+  async function refreshAll() {
+    if (state.refreshing) return;
+    state.refreshing = true;
+    const btn = $('refresh-btn');
+    btn.disabled = true;
+    btn.querySelector('svg').classList.add('spinning');
+    try {
+      const profilesPayload = await request('/api/profiles');
+      state.profiles = Array.isArray(profilesPayload?.profiles) ? profilesPayload.profiles : [];
+      if (state.selectedBuyerId !== null) {
+        const payload = await request(`/api/dsr/active/${encodeURIComponent(state.selectedBuyerId)}`);
+        if (payload && payload.session) {
+          hydratePayload(payload);
+          $('last-sync').textContent = timeLabel(new Date().toISOString());
+          $('sync-label').textContent = 'Warehouse sync is live';
+        }
+      }
+      if (state.role === 'Admin') await loadAdminData();
+      render();
+      toast('Refreshed.');
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      state.refreshing = false;
+      btn.disabled = false;
+      btn.querySelector('svg').classList.remove('spinning');
     }
   }
 
@@ -3179,7 +3213,7 @@
     $('balance-adjust-value').addEventListener('input', updateBalancePreview);
     document.querySelectorAll('input[name="balance-mode"]').forEach((r) => r.addEventListener('change', updateBalanceModeUI));
     $('logout-btn').addEventListener('click', doLogout);
-    $('refresh-btn').addEventListener('click', () => window.location.reload());
+    $('refresh-btn').addEventListener('click', refreshAll);
     $('close-stock-adjust').addEventListener('click', closeStockAdjust);
     $('cancel-stock-adjust').addEventListener('click', closeStockAdjust);
     $('stock-adjust-modal').addEventListener('click', (event) => { if (event.target === $('stock-adjust-modal')) closeStockAdjust(); });
