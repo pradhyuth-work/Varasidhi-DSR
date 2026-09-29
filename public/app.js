@@ -1377,7 +1377,6 @@
     const { summary, rows, filters } = data;
     const isSingle = filters.profileId !== null;
 
-    $('perf-stat-sessions').textContent = integer(summary.session_count);
     $('perf-stat-qty').textContent      = integer(summary.total_qty);
     $('perf-stat-revenue').textContent  = currency(summary.total_revenue);
     $('perf-table-title').textContent   = isSingle
@@ -1396,13 +1395,12 @@
             const rank = r.total_qty > 0 ? `<span class="perf-rank">${String(i + 1).padStart(2, '0')}</span>` : '<span class="perf-rank perf-rank-zero">—</span>';
             return `<tr>
               <td><div class="product-cell">${rank}<span>${escapeHtml(r.product_name)}</span></div></td>
-              <td class="stock-quiet">${integer(r.session_count)}</td>
               <td class="route-stock">${integer(r.total_qty)}</td>
               <td class="price">${currency(r.total_revenue)}</td>
               <td><div class="perf-bar-cell"><div class="pct-bar"><div class="pct-fill" style="width:${Math.round((r.total_qty / maxQty) * 100)}%"></div></div><span class="pct-label">${pct}%</span></div></td>
             </tr>`;
           }).join('')
-        : '<tr><td colspan="5">No sales data for this profile.</td></tr>';
+        : '<tr><td colspan="4">No sales data for this profile.</td></tr>';
     } else {
       // All-profile comparison table
       const maxQty = Math.max(1, ...rows.map((r) => r.total_qty));
@@ -1413,13 +1411,12 @@
             const rank = r.total_qty > 0 ? `<span class="perf-rank">${String(i + 1).padStart(2, '0')}</span>` : '<span class="perf-rank perf-rank-zero">—</span>';
             return `<tr>
               <td><div class="product-cell">${rank}<span>${escapeHtml(r.buyer_name)}</span></div></td>
-              <td class="stock-quiet">${integer(r.session_count)}</td>
               <td class="route-stock">${integer(r.total_qty)}</td>
               <td class="price">${currency(r.total_revenue)}</td>
               <td><div class="perf-bar-cell"><div class="pct-bar"><div class="pct-fill" style="width:${Math.round((r.total_qty / maxQty) * 100)}%"></div></div><span class="pct-label">${pct}%</span></div></td>
             </tr>`;
           }).join('')
-        : '<tr><td colspan="5">No sales data for this period.</td></tr>';
+        : '<tr><td colspan="4">No sales data for this period.</td></tr>';
 
       // Product breakdown cards for each profile below the main table
       $('perf-profiles-products').innerHTML = rows
@@ -1478,17 +1475,17 @@
       [q('Performance Report')],
       [q('Profile'), q(profileName)],
       [q('Period'),  q(`${filters.from} to ${filters.to}`)],
-      [q('Total Sessions'), q(summary.session_count), q('Total Qty Sold'), q(summary.total_qty), q('Total Revenue'), q(summary.total_revenue)],
+      [q('Total Qty Sold'), q(summary.total_qty), q('Total Revenue'), q(summary.total_revenue)],
       [''],
     ];
     if (isSingle) {
-      csvRows.push([q('Product'), q('Sessions'), q('Qty Sold'), q('Revenue')].join(','));
-      for (const r of rows) csvRows.push([q(r.product_name), q(r.session_count), q(r.total_qty), q(r.total_revenue)].join(','));
+      csvRows.push([q('Product'), q('Qty Sold'), q('Revenue')].join(','));
+      for (const r of rows) csvRows.push([q(r.product_name), q(r.total_qty), q(r.total_revenue)].join(','));
     } else {
-      csvRows.push([q('Buyer'), q('Sessions'), q('Total Qty Sold'), q('Revenue'), q('Top Product'), q('Top Product Qty')].join(','));
+      csvRows.push([q('Buyer'), q('Total Qty Sold'), q('Revenue'), q('Top Product'), q('Top Product Qty')].join(','));
       for (const r of rows) {
         const top = r.products?.[0];
-        csvRows.push([q(r.buyer_name), q(r.session_count), q(r.total_qty), q(r.total_revenue), q(top?.product_name ?? '—'), q(top?.total_qty ?? 0)].join(','));
+        csvRows.push([q(r.buyer_name), q(r.total_qty), q(r.total_revenue), q(top?.product_name ?? '—'), q(top?.total_qty ?? 0)].join(','));
       }
     }
     downloadCsvBlob(csvRows.join('\n'), `performance-${filters.from}-to-${filters.to}.csv`);
