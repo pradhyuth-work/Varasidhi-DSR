@@ -3179,6 +3179,7 @@
     $('balance-adjust-value').addEventListener('input', updateBalancePreview);
     document.querySelectorAll('input[name="balance-mode"]').forEach((r) => r.addEventListener('change', updateBalanceModeUI));
     $('logout-btn').addEventListener('click', doLogout);
+    $('refresh-btn').addEventListener('click', () => window.location.reload());
     $('close-stock-adjust').addEventListener('click', closeStockAdjust);
     $('cancel-stock-adjust').addEventListener('click', closeStockAdjust);
     $('stock-adjust-modal').addEventListener('click', (event) => { if (event.target === $('stock-adjust-modal')) closeStockAdjust(); });
