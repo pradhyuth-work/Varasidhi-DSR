@@ -546,6 +546,24 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .profile-stock-card .table-shell { border-radius: 0; border: none; border-top: 1px solid var(--line); }
 
 /* ── Performance tab ────────────────────────────────────────────────── */
+/* With the sessions column gone, the buyer/product name column was the
+   only flexible one left and absorbed all the freed-up width, pushing
+   a big gap in front of the qty/revenue numbers. Capping it keeps the
+   remaining columns close together instead of spread across the row. */
+#perf-profiles-view .route-table th:first-child,
+#perf-single-view .route-table th:first-child { width: 40%; }
+/* width:1% + nowrap is a standard table trick: these columns shrink to fit
+   their own (short, numeric) content instead of claiming an even share of
+   the row, so the number sits right after the name instead of stranded at
+   the far edge of an oversized column. QTY SHARE is left flexible since its
+   bar chart can actually use the leftover space. */
+#perf-profiles-view .route-table th:nth-child(2), #perf-profiles-view .route-table td:nth-child(2),
+#perf-single-view .route-table th:nth-child(2), #perf-single-view .route-table td:nth-child(2),
+#perf-profiles-view .route-table th:nth-child(3), #perf-profiles-view .route-table td:nth-child(3),
+#perf-single-view .route-table th:nth-child(3), #perf-single-view .route-table td:nth-child(3) {
+  width: 1%;
+  white-space: nowrap;
+}
 .perf-rank {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; border-radius: 4px;
