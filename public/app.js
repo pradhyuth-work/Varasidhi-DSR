@@ -1794,14 +1794,40 @@
     } catch (error) { showStatusOverlay('error', error.message); } finally { setBusy(false, 'settle-route'); }
   }
 
+  const formatDdMmYy = (iso) => {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return `${d}-${m}-${y.slice(2)}`;
+  };
+
   async function submitPayment(event) {
     event.preventDefault();
     if (!state.session || state.session.status === 'SETTLED') return;
-    const amount = Number($('payment-amount').value);
+    const isCheque = $('payment-method').value === 'CHEQUE';
+    let amount = Number($('payment-amount').value);
+    let chequeDetails = '';
+    if (isCheque) {
+      const rows = Array.from(document.querySelectorAll('#payment-cheques-list .cheque-row'));
+      const cheques = rows.map((row) => ({
+        serial: row.querySelector('.cheque-serial').value.trim(),
+        date: row.querySelector('.cheque-date').value,
+        amount: Number(row.querySelector('.cheque-amount').value || 0),
+      })).filter((c) => c.serial || c.date || c.amount > 0);
+      if (!cheques.length) return toast('Add at least one cheque.', 'error');
+      if (cheques.some((c) => !c.serial)) return toast('Enter a serial number for every cheque.', 'error');
+      if (cheques.some((c) => !(c.amount > 0))) return toast('Enter an amount for every cheque.', 'error');
+      amount = roundMoney(cheques.reduce((sum, c) => sum + c.amount, 0));
+      chequeDetails = cheques.map((c) => `#${c.serial}${c.date ? ` (${formatDdMmYy(c.date)})` : ''} ${currency(c.amount)}`).join('; ');
+    }
     if (!Number.isFinite(amount) || amount <= 0) return toast('Enter a payment amount greater than zero.', 'error');
+    const dateIso = $('payment-date').value || todayIso();
+    const refText = $('payment-label').value.trim();
+    const labelParts = [formatDdMmYy(dateIso)];
+    if (refText) labelParts.push(refText);
+    if (chequeDetails) labelParts.push(chequeDetails);
     setBusy(true);
     try {
-      const payment = await request('/api/payments', { method: 'POST', body: JSON.stringify({ dsrId: Number(state.session.id), method: $('payment-method').value, labelInfo: $('payment-label').value.trim(), amount }) });
+      const payment = await request('/api/payments', { method: 'POST', body: JSON.stringify({ dsrId: Number(state.session.id), method: $('payment-method').value, labelInfo: labelParts.join(' · '), amount }) });
       state.payments.unshift(payment); // newest first to match DESC query order
       closePayment();
       toast('Payment added to this route.');
@@ -2889,32 +2915,55 @@
   function openPayment() {
     if (!state.session || state.session.status === 'SETTLED') return;
     $('payment-form').reset();
-    $('payment-label-date').value = todayIso();
+    $('payment-date').value = todayIso();
+    $('payment-cheques-list').innerHTML = '';
     $('payment-method-claims').hidden = state.role !== 'Admin';
+    togglePaymentMethodFields();
     setHidden('payment-modal', false);
     window.setTimeout(() => $('payment-amount').focus(), 40);
   }
   function closePayment() { setHidden('payment-modal', true); }
 
-  function openPaymentLabelDate() {
-    const input = $('payment-label-date');
-    if (typeof input.showPicker === 'function') input.showPicker();
-    else input.focus();
+  function addChequeRow() {
+    const row = document.createElement('div');
+    row.className = 'cheque-row';
+    row.innerHTML = `
+      <label class="cheque-field"><span>Serial no.</span><input type="text" class="cheque-serial" maxlength="40" placeholder="e.g. 004512" /></label>
+      <label class="cheque-field"><span>Date</span><input type="date" class="cheque-date" /></label>
+      <label class="cheque-field"><span>Amount</span><input type="number" class="cheque-amount" min="0.01" step="0.01" placeholder="0.00" /></label>
+      <button type="button" class="cheque-row-delete" aria-label="Remove cheque"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14m-9 4v6m4-6v6M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg></button>`;
+    row.querySelector('.cheque-date').value = todayIso();
+    $('payment-cheques-list').appendChild(row);
+    updateChequeTotal();
   }
 
-  // Prepends the picked date (DD-MM-YY, matching how references are typed
-  // elsewhere on this route) to whatever's already in the reference field,
-  // rather than replacing it — the date is a prefix, not the whole label.
-  function insertPaymentLabelDate() {
-    const iso = $('payment-label-date').value;
-    if (!iso) return;
-    const [y, m, d] = iso.split('-');
-    const formatted = `${d}-${m}-${y.slice(2)}`;
-    const label = $('payment-label');
-    const existing = label.value.trim();
-    label.value = existing ? `${formatted} ${existing}` : formatted;
-    label.focus();
-    label.setSelectionRange(label.value.length, label.value.length);
+  function removeChequeRow(row) {
+    row.remove();
+    if (!$('payment-cheques-list').children.length) addChequeRow();
+    updateChequeTotal();
+  }
+
+  function updateChequeTotal() {
+    const amounts = Array.from(document.querySelectorAll('#payment-cheques-list .cheque-amount')).map((input) => Number(input.value || 0));
+    const total = roundMoney(amounts.reduce((sum, value) => sum + value, 0));
+    $('payment-cheques-total').textContent = currency(total);
+    if ($('payment-method').value === 'CHEQUE') $('payment-amount').value = total > 0 ? total.toFixed(2) : '';
+  }
+
+  // Cheque payments collect their amount from the cheque rows below rather than
+  // a single typed figure, so the Amount field becomes a read-only running total.
+  function togglePaymentMethodFields() {
+    const isCheque = $('payment-method').value === 'CHEQUE';
+    const wasCheque = !$('payment-cheques-field').hidden;
+    setHidden('payment-cheques-field', !isCheque);
+    $('payment-amount').readOnly = isCheque;
+    $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', isCheque);
+    if (isCheque) {
+      if (!$('payment-cheques-list').children.length) addChequeRow();
+      updateChequeTotal();
+    } else if (wasCheque) {
+      $('payment-amount').value = ''; // clear the cheque-derived total, not a user-typed figure
+    }
   }
 
   // ---- Auth / login gate --------------------------------------------------
@@ -3530,8 +3579,8 @@
     $('cancel-payment').addEventListener('click', closePayment);
     $('payment-modal').addEventListener('click', (event) => { if (event.target === $('payment-modal')) closePayment(); });
     $('payment-form').addEventListener('submit', submitPayment);
-    $('payment-label-date-btn').addEventListener('click', openPaymentLabelDate);
-    $('payment-label-date').addEventListener('change', insertPaymentLabelDate);
+    $('payment-method').addEventListener('change', togglePaymentMethodFields);
+    $('add-cheque-row').addEventListener('click', addChequeRow);
     $('close-admin-auth').addEventListener('click', closeAdminAuth);
     $('cancel-admin-auth').addEventListener('click', closeAdminAuth);
     $('admin-auth-modal').addEventListener('click', (event) => { if (event.target === $('admin-auth-modal')) closeAdminAuth(); });
@@ -3545,6 +3594,7 @@
         state.closingDrafts[event.target.dataset.productId] = Math.max(0, Number(event.target.value || 0));
         updateTotals();
       }
+      if (event.target.matches('.cheque-amount')) updateChequeTotal();
     });
     // Number inputs change value on mouse-wheel scroll while focused; blur on scroll so
     // scrolling the page over these fields doesn't silently edit load-in/closing quantities.
@@ -3556,6 +3606,8 @@
     document.addEventListener('click', (event) => {
       const deleteButton = event.target.closest('[data-delete-payment]');
       if (deleteButton) deletePayment(deleteButton.dataset.deletePayment);
+      const chequeDeleteButton = event.target.closest('.cheque-row-delete');
+      if (chequeDeleteButton) removeChequeRow(chequeDeleteButton.closest('.cheque-row'));
       const rateButton = event.target.closest('[data-product-id].rate-save');
       if (rateButton) saveRate(rateButton.dataset.productId);
       const stockButton = event.target.closest('[data-stock-adjust]');
