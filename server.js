@@ -1273,17 +1273,372 @@ app.post("/api/dsr/load-in/correct", async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Empty packets: a separate "empty pack types" list (not linked to
+// `products`), with effective-dated rates. See db/schema.sql for the table
+// shapes and the design notes above empty_pack_types there.
+// ---------------------------------------------------------------------------
+
+// For each type, the latest rate row with valid_from <= asOfDate (if any).
+// A type with no rate row yet on or before that date is omitted entirely; a
+// type whose latest rate is 0 is included (callers filter that out when it
+// means "stopped accepting", but the Admin scheme view wants to see it).
+async function emptyPackRatesAsOf(asOfDate) {
+  return database.all(
+    `SELECT t.id, t.name, t.grp, t.sort_order, r.rate, r.valid_from
+       FROM empty_pack_types t
+       JOIN LATERAL (
+         SELECT rate, valid_from FROM empty_pack_rates
+          WHERE type_id = t.id AND valid_from <= ?
+          ORDER BY valid_from DESC LIMIT 1
+       ) r ON true
+      ORDER BY t.sort_order, t.name, t.id`,
+    [asOfDate],
+  );
+}
+
+async function buildEmptyPackSchemePayload() {
+  const types = await database.all(
+    "SELECT id, name, grp, sort_order FROM empty_pack_types ORDER BY sort_order, name, id",
+  );
+  const rateRows = await database.all(
+    "SELECT type_id, rate, valid_from FROM empty_pack_rates ORDER BY type_id, valid_from",
+  );
+  const historyByType = new Map();
+  for (const row of rateRows) {
+    if (!historyByType.has(row.type_id)) historyByType.set(row.type_id, []);
+    historyByType.get(row.type_id).push({ rate: Number(row.rate), valid_from: row.valid_from });
+  }
+  const currentRows = await emptyPackRatesAsOf(today());
+  const currentByType = new Map(currentRows.map((r) => [Number(r.id), Number(r.rate)]));
+  return {
+    types: types.map((t) => ({
+      id: t.id,
+      name: t.name,
+      grp: t.grp,
+      currentRate: currentByType.has(Number(t.id)) ? currentByType.get(Number(t.id)) : null,
+      history: historyByType.get(t.id) || [],
+    })),
+  };
+}
+
+// Shared by the JSON and CSV empty-packs summary routes. `unitemised` covers
+// pre-feature / fallback lump-sum EMPTY_PACKETS payments that have no
+// empty_pack_items lines, so the reported value still reconciles with the
+// Payments & balances total for the same range.
+async function buildEmptyPacksReport(from, to, profileId) {
+  const paymentRows = await database.all(
+    `SELECT p.id, p.dsr_id, p.amount, pr.id AS buyer_id, pr.name AS buyer_name
+       FROM payments p
+       JOIN dsr_sessions s  ON s.id  = p.dsr_id
+       JOIN profiles     pr ON pr.id = s.buyer_id
+      WHERE p.method = 'EMPTY_PACKETS'
+        AND (p.paid_at AT TIME ZONE 'Asia/Kolkata')::date >= ?::date
+        AND (p.paid_at AT TIME ZONE 'Asia/Kolkata')::date <= ?::date
+        AND (?::int IS NULL OR s.buyer_id = ?)`,
+    [from, to, profileId, profileId],
+  );
+
+  const paymentIds = paymentRows.map((p) => p.id);
+  const itemRows = paymentIds.length
+    ? await database.all(
+        `SELECT ei.payment_id, ei.type_id, t.name AS type_name, ei.qty, ei.rate, ei.amount
+           FROM empty_pack_items ei
+           JOIN empty_pack_types t ON t.id = ei.type_id
+          WHERE ei.payment_id = ANY(?::int[])
+          ORDER BY t.sort_order, t.name`,
+        [paymentIds],
+      )
+    : [];
+
+  const itemizedPaymentIds = new Set(itemRows.map((i) => i.payment_id));
+  const unitemised = roundMoney(
+    paymentRows
+      .filter((p) => !itemizedPaymentIds.has(p.id))
+      .reduce((sum, p) => sum + Number(p.amount), 0),
+  );
+
+  const byTypeMap = new Map();
+  for (const item of itemRows) {
+    if (!byTypeMap.has(item.type_id)) {
+      byTypeMap.set(item.type_id, {
+        type_id: item.type_id,
+        type: item.type_name,
+        packets: 0,
+        value: 0,
+        minRate: Number(item.rate),
+        maxRate: Number(item.rate),
+      });
+    }
+    const entry = byTypeMap.get(item.type_id);
+    entry.packets += Number(item.qty);
+    entry.value = roundMoney(entry.value + Number(item.amount));
+    entry.minRate = Math.min(entry.minRate, Number(item.rate));
+    entry.maxRate = Math.max(entry.maxRate, Number(item.rate));
+  }
+  const byType = [...byTypeMap.values()].sort((a, b) => a.type.localeCompare(b.type));
+  const types = byType.map((t) => ({ id: t.type_id, name: t.type }));
+
+  const paymentById = new Map(paymentRows.map((p) => [p.id, p]));
+  const buyerMap = new Map();
+  for (const payment of paymentRows) {
+    if (!itemizedPaymentIds.has(payment.id)) continue;
+    if (!buyerMap.has(payment.buyer_id)) {
+      buyerMap.set(payment.buyer_id, {
+        buyer_id: payment.buyer_id,
+        buyer_name: payment.buyer_name,
+        byType: new Map(),
+        value: 0,
+      });
+    }
+  }
+  for (const item of itemRows) {
+    const payment = paymentById.get(item.payment_id);
+    if (!payment) continue;
+    const buyer = buyerMap.get(payment.buyer_id);
+    buyer.value = roundMoney(buyer.value + Number(item.amount));
+    buyer.byType.set(item.type_id, (buyer.byType.get(item.type_id) || 0) + Number(item.qty));
+  }
+  const matrix = [...buyerMap.values()]
+    .map((b) => ({
+      buyer_id: b.buyer_id,
+      buyer_name: b.buyer_name,
+      packets: types.map((t) => b.byType.get(t.id) || 0),
+      value: b.value,
+    }))
+    .sort((a, b) => b.value - a.value || a.buyer_id - b.buyer_id);
+
+  const totalPackets = byType.reduce((sum, t) => sum + t.packets, 0);
+  const totalValue = roundMoney(byType.reduce((sum, t) => sum + t.value, 0) + unitemised);
+
+  return {
+    filters: { from, to, profileId },
+    totals: {
+      packets: totalPackets,
+      value: totalValue,
+      types: byType.length,
+      buyers: buyerMap.size,
+    },
+    byType,
+    types,
+    matrix,
+    unitemised,
+  };
+}
+
+function buildEmptyPacksCsv(data) {
+  const q = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+  const lines = [];
+  lines.push([q("Empty Packets Summary")].join(","));
+  lines.push([q("Period"), q(`${data.filters.from} to ${data.filters.to}`)].join(","));
+  lines.push("");
+  lines.push([q("TOTALS")].join(","));
+  lines.push([q("Packets"), q("Value"), q("Products"), q("Buyers")].join(","));
+  lines.push([q(data.totals.packets), q(data.totals.value), q(data.totals.types), q(data.totals.buyers)].join(","));
+  lines.push("");
+  lines.push([q("PRODUCT-WISE")].join(","));
+  lines.push([q("Product"), q("Packets"), q("Share %"), q("Rate used"), q("Value")].join(","));
+  for (const row of data.byType) {
+    const share = data.totals.packets > 0 ? roundMoney((row.packets / data.totals.packets) * 100) : 0;
+    const rateUsed = row.minRate === row.maxRate ? row.minRate.toFixed(2) : `${row.minRate.toFixed(2)}-${row.maxRate.toFixed(2)}`;
+    lines.push([q(row.type), q(row.packets), q(share), q(rateUsed), q(row.value)].join(","));
+  }
+  const itemisedValue = roundMoney(data.totals.value - data.unitemised);
+  lines.push([q("Total"), q(data.totals.packets), q(100), q(""), q(itemisedValue)].join(","));
+  if (data.unitemised > 0) {
+    lines.push([q("Not itemised (earlier lump-sum entries)"), q(""), q(""), q(""), q(data.unitemised)].join(","));
+  }
+  lines.push("");
+  lines.push([q("BUYER x PRODUCT MATRIX")].join(","));
+  lines.push([q("Buyer"), ...data.types.map((t) => q(t.name)), q("Total Value")].join(","));
+  for (const row of data.matrix) {
+    lines.push([q(row.buyer_name), ...row.packets.map((p) => q(p)), q(row.value)].join(","));
+  }
+  return lines.join("\n");
+}
+
+app.get("/api/empty-packs/rates", async (_req, res) => {
+  try {
+    const rows = await emptyPackRatesAsOf(today());
+    res.json({
+      types: rows
+        .filter((r) => Number(r.rate) > 0)
+        .map((r) => ({ id: r.id, name: r.name, grp: r.grp, rate: Number(r.rate) })),
+    });
+  } catch (error) {
+    console.error("Failed to load empty pack rates", error);
+    fail(res, 500, "Unable to load empty pack rates.");
+  }
+});
+
+app.get("/api/empty-packs/scheme", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can view the empty pack scheme.");
+  try {
+    res.json(await buildEmptyPackSchemePayload());
+  } catch (error) {
+    console.error("Failed to load empty pack scheme", error);
+    fail(res, 500, "Unable to load the empty pack scheme.");
+  }
+});
+
+app.post("/api/empty-packs/scheme", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can update the empty pack scheme.");
+  const validFrom = String(req.body?.validFrom || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom)) {
+    return fail(res, 400, "A valid effective date (YYYY-MM-DD) is required.");
+  }
+  const rawRates = Array.isArray(req.body?.rates) ? req.body.rates : [];
+  if (!rawRates.length) return fail(res, 400, "At least one rate is required.");
+  const entries = [];
+  for (const entry of rawRates) {
+    const typeId = positiveInteger(entry?.typeId);
+    const rate = Number(entry?.rate);
+    if (typeId === null || typeId < 1 || !Number.isFinite(rate) || rate < 0) {
+      return fail(res, 400, "Each rate must reference a valid product type with a non-negative number.");
+    }
+    entries.push({ typeId, rate: roundMoney(rate) });
+  }
+  try {
+    const actor = actorLabel(req);
+    await withTransaction(async (tx) => {
+      for (const entry of entries) {
+        const type = await tx.get("SELECT id FROM empty_pack_types WHERE id = ?", [entry.typeId]);
+        if (!type) throw new Error("One or more product types could not be found.");
+        await tx.run(
+          `INSERT INTO empty_pack_rates (type_id, rate, valid_from, created_by)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT (type_id, valid_from) DO UPDATE SET rate = EXCLUDED.rate, created_by = EXCLUDED.created_by`,
+          [entry.typeId, entry.rate, validFrom, actor],
+        );
+      }
+    });
+    res.json(await buildEmptyPackSchemePayload());
+  } catch (error) {
+    console.error("Failed to update empty pack scheme", error);
+    fail(res, 500, error instanceof Error ? error.message : "Unable to update the empty pack scheme.");
+  }
+});
+
+app.post("/api/empty-packs/types", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can add a new packet type.");
+  const name = String(req.body?.name || "").trim();
+  const grp = String(req.body?.grp || "").trim();
+  const rate = Number(req.body?.rate);
+  const validFrom = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.validFrom) ? req.body.validFrom : today();
+  if (!name || name.length > 60) return fail(res, 400, "A product type name (up to 60 characters) is required.");
+  if (!Number.isFinite(rate) || rate < 0) return fail(res, 400, "A non-negative rate is required.");
+  try {
+    const actor = actorLabel(req);
+    await withTransaction(async (tx) => {
+      const { max } = await tx.get("SELECT COALESCE(MAX(sort_order), 0) AS max FROM empty_pack_types");
+      const created = await tx.run(
+        "INSERT INTO empty_pack_types (name, grp, sort_order, created_by) VALUES (?, ?, ?, ?)",
+        [name, grp, Number(max) + 10, actor],
+      );
+      await tx.run(
+        "INSERT INTO empty_pack_rates (type_id, rate, valid_from, created_by) VALUES (?, ?, ?, ?)",
+        [created.id, roundMoney(rate), validFrom, actor],
+      );
+    });
+    res.status(201).json(await buildEmptyPackSchemePayload());
+  } catch (error) {
+    if (error?.code === "23505") return fail(res, 409, "A product type with that name already exists.");
+    console.error("Failed to add empty pack type", error);
+    fail(res, 500, "Unable to add the product type.");
+  }
+});
+
 app.post("/api/payments", async (req, res) => {
   const dsrId = positiveInteger(req.body?.dsrId);
   const method = String(req.body?.method || "").trim();
   const labelInfo = String(req.body?.labelInfo || "").trim();
+  const rawEmptyPacks = Array.isArray(req.body?.emptyPacks) ? req.body.emptyPacks : null;
+  const emptyPacks = method === "EMPTY_PACKETS" && rawEmptyPacks && rawEmptyPacks.length > 0 ? rawEmptyPacks : null;
+
+  if (dsrId === null || dsrId < 1 || !method) {
+    return fail(res, 400, "A payment method is required.");
+  }
+
+  // Itemized empty-packets path: packets x current rate, computed and
+  // verified server-side. Any client-sent `amount` is ignored entirely here.
+  if (emptyPacks) {
+    if (emptyPacks.length > 30) {
+      return fail(res, 400, "Too many packet lines on one payment (max 30).");
+    }
+    const seenTypes = new Set();
+    const lines = [];
+    for (const entry of emptyPacks) {
+      const typeId = positiveInteger(entry?.typeId);
+      const qty = positiveInteger(entry?.qty);
+      if (typeId === null || typeId < 1 || qty === null || qty < 1) {
+        return fail(res, 400, "Each packet line needs a valid product and a whole-number quantity of at least 1.");
+      }
+      if (seenTypes.has(typeId)) return fail(res, 400, "The same product cannot appear twice in one payment.");
+      seenTypes.add(typeId);
+      lines.push({ typeId, qty });
+    }
+    try {
+      const rateRows = await emptyPackRatesAsOf(today());
+      const rateByType = new Map(rateRows.map((r) => [Number(r.id), r]));
+      let amount = 0;
+      const resolved = [];
+      for (const line of lines) {
+        const info = rateByType.get(line.typeId);
+        if (!info || Number(info.rate) <= 0) {
+          return fail(res, 400, "One or more selected products has no active rate today.");
+        }
+        const lineAmount = roundMoney(line.qty * Number(info.rate));
+        amount = roundMoney(amount + lineAmount);
+        resolved.push({ typeId: line.typeId, name: info.name, qty: line.qty, rate: Number(info.rate), amount: lineAmount });
+      }
+      if (!(amount > 0)) return fail(res, 400, "Enter at least one packet quantity greater than zero.");
+      const productList = resolved.map((l) => `${l.name} x${l.qty}`).join(", ");
+      const finalLabel = [labelInfo, productList].filter(Boolean).join(" · ");
+      const actor = actorLabel(req);
+
+      const outcome = await withTransaction(async (tx) => {
+        const session = await tx.get("SELECT id, status FROM dsr_sessions WHERE id = ?", [dsrId]);
+        if (!session) throw new Error("DSR session not found.");
+        if (session.status !== "IN_PROGRESS") throw new Error("Settled DSRs are locked.");
+        // paid_at is set here with the literal SQL now(), never from req.body.
+        const created = await tx.run(
+          `INSERT INTO payments (dsr_id, method, label_info, amount, created_by, paid_at)
+           VALUES (?, ?, ?, ?, ?, now())`,
+          [dsrId, method, finalLabel, amount, actor],
+        );
+        for (const line of resolved) {
+          await tx.run(
+            `INSERT INTO empty_pack_items (payment_id, type_id, qty, rate, amount) VALUES (?, ?, ?, ?, ?)`,
+            [created.id, line.typeId, line.qty, line.rate, line.amount],
+          );
+        }
+        const payment = await tx.get(
+          `SELECT id, dsr_id, method, label_info, amount, created_at, created_by, paid_at
+             FROM payments WHERE id = ?`,
+          [created.id],
+        );
+        const items = await tx.all(
+          `SELECT ei.id, ei.type_id, t.name AS type_name, ei.qty, ei.rate, ei.amount
+             FROM empty_pack_items ei JOIN empty_pack_types t ON t.id = ei.type_id
+            WHERE ei.payment_id = ? ORDER BY t.sort_order, t.name`,
+          [created.id],
+        );
+        return { payment, items };
+      });
+      return res.status(201).json({ ...outcome.payment, items: outcome.items });
+    } catch (error) {
+      if (error.message === "DSR session not found.") return fail(res, 404, error.message);
+      if (error.message === "Settled DSRs are locked.") return fail(res, 409, error.message);
+      console.error("Failed to add empty packets payment", error);
+      return fail(res, 500, "Unable to record payment.");
+    }
+  }
+
+  // Legacy / lump-sum path — unchanged. Covers every method other than
+  // EMPTY_PACKETS, and EMPTY_PACKETS itself when no emptyPacks lines are sent
+  // (older clients, or the UI's own fallback if the rates fetch fails).
   const amount = positiveAmount(req.body?.amount);
-  if (
-    dsrId === null ||
-    dsrId < 1 ||
-    !method ||
-     amount === null
-  ) {
+  if (amount === null) {
     return fail(res, 400, "A payment method and a positive amount are required.");
   }
   try {
@@ -1578,6 +1933,9 @@ const BACKUP_TABLES = [
   "dsr_sessions",
   "dsr_items",
   "payments",
+  "empty_pack_types",
+  "empty_pack_rates",
+  "empty_pack_items",
   "purchases",
   "stock_returns",
   "stock_adjustments",
@@ -2073,6 +2431,34 @@ app.get("/api/reports/payments", async (req, res) => {
   } catch (error) {
     console.error("Failed to generate payments report", error);
     fail(res, 500, "Unable to generate payments report.");
+  }
+});
+
+app.get("/api/reports/empty-packs", async (req, res) => {
+  try {
+    const profileId = positiveInteger(req.query?.profileId) ?? null;
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.from) ? req.query.from : `${today().slice(0, 7)}-01`;
+    const to   = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.to)   ? req.query.to   : today();
+    res.json(await buildEmptyPacksReport(from, to, profileId));
+  } catch (error) {
+    console.error("Failed to generate empty packs report", error);
+    fail(res, 500, "Unable to generate the empty packs report.");
+  }
+});
+
+app.get("/api/reports/empty-packs.csv", async (req, res) => {
+  try {
+    const profileId = positiveInteger(req.query?.profileId) ?? null;
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.from) ? req.query.from : `${today().slice(0, 7)}-01`;
+    const to   = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.to)   ? req.query.to   : today();
+    const data = await buildEmptyPacksReport(from, to, profileId);
+    const csv = buildEmptyPacksCsv(data);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="empty-packs-${from}-to-${to}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    console.error("Failed to generate empty packs CSV report", error);
+    fail(res, 500, "Unable to generate the empty packs CSV report.");
   }
 });
 
