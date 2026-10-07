@@ -48,6 +48,12 @@
     paymentsReportData: null,
     paymentsReportLoading: false,
     paymentsReportPage: 0,
+    prView: 'all',
+    emptyPackRates: undefined,
+    emptyPacksReportData: null,
+    emptyPacksReportLoading: false,
+    emptyPackSchemeData: null,
+    emptyPackSchemeLoading: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -497,7 +503,17 @@
       });
       renderReport(); renderInventoryReport(); renderProfileStock(); renderSkuMatrix();
     }
-    if (state.adminTab === 'payments-report') { renderPaymentsReport(); }
+    if (state.adminTab === 'payments-report') {
+      document.querySelectorAll('[data-pr-view]').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.prView === state.prView);
+      });
+      document.querySelectorAll('[data-pr-panel]').forEach((panel) => {
+        panel.hidden = panel.dataset.prPanel !== state.prView;
+      });
+      renderPaymentsReport();
+      renderEmptyPacksReport();
+    }
+    if (state.adminTab === 'empty-pack-scheme') { renderEmptyPackScheme(); }
   }
 
   function renderPaymentsReport() {
@@ -625,6 +641,172 @@
     }
     downloadCsvBlob(rows.join('\n'), `payments-report-${filters.from}-to-${filters.to}.csv`);
     toast('Payments report downloaded.');
+  }
+
+  // ---- Empty packets summary (sub-view of Payments & balances) -----------
+  function renderEmptyPacksReport() {
+    if (!$('eprep-bytype-body')) return;
+    const prSel = $('eprep-profile-select');
+    const prevVal = prSel.value;
+    prSel.innerHTML = '<option value="">All profiles</option>' +
+      state.profiles.map((p) => `<option value="${escapeHtml(p.id)}"${String(p.id) === prevVal ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+
+    const loading = state.emptyPacksReportLoading;
+    const data = state.emptyPacksReportData;
+    const hasResults = Boolean(data) && (data.totals.packets > 0 || data.unitemised > 0);
+    setHidden('eprep-loading', !loading);
+    setHidden('eprep-empty', loading || hasResults || !data);
+    setHidden('eprep-summary', !hasResults);
+    setHidden('eprep-bytype-section', !hasResults);
+    setHidden('eprep-matrix-section', !hasResults || !data.matrix.length);
+    if ($('eprep-download-csv')) $('eprep-download-csv').disabled = !hasResults;
+    if (!data || loading) return;
+
+    $('eprep-total-packets').textContent = integer(data.totals.packets);
+    $('eprep-total-value').textContent   = currency(data.totals.value);
+    $('eprep-type-count').textContent    = integer(data.totals.types);
+    $('eprep-buyer-count').textContent   = integer(data.totals.buyers);
+
+    const rateLabel = (row) => row.minRate === row.maxRate ? currency(row.minRate) : `${currency(row.minRate)} – ${currency(row.maxRate)}`;
+    const typeRowsHtml = data.byType.length ? data.byType.map((row) => {
+      const share = data.totals.packets > 0 ? (row.packets / data.totals.packets) * 100 : 0;
+      return `<tr>
+        <td><div class="product-cell"><span>${escapeHtml(row.type)}</span></div></td>
+        <td>${integer(row.packets)}</td>
+        <td class="stock-quiet">${share.toFixed(1)}%</td>
+        <td class="stock-quiet">${rateLabel(row)}</td>
+        <td class="price">${currency(row.value)}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="5">No itemised packets in this period.</td></tr>';
+    const itemisedValue = roundMoney(data.totals.value - data.unitemised);
+    const totalRow = `<tr class="pr-day-header"><td><b>Total</b></td><td><b>${integer(data.totals.packets)}</b></td><td></td><td></td><td class="price"><b>${currency(itemisedValue)}</b></td></tr>`;
+    const unitemisedRow = data.unitemised > 0
+      ? `<tr><td class="stock-quiet">Not itemised (earlier lump-sum entries)</td><td class="stock-quiet">—</td><td class="stock-quiet">—</td><td class="stock-quiet">—</td><td class="price">${currency(data.unitemised)}</td></tr>`
+      : '';
+    $('eprep-bytype-body').innerHTML = typeRowsHtml + totalRow + unitemisedRow;
+
+    $('eprep-matrix-thead').innerHTML = `<tr><th>BUYER</th>${data.types.map((t) => `<th>${escapeHtml(t.name)}</th>`).join('')}<th>VALUE</th></tr>`;
+    $('eprep-matrix-tbody').innerHTML = data.matrix.length ? data.matrix.map((row) => `
+      <tr>
+        <td><div class="product-cell"><span class="profile-mini">${escapeHtml(initials(row.buyer_name))}</span><span>${escapeHtml(row.buyer_name)}</span></div></td>
+        ${row.packets.map((p) => `<td>${integer(p)}</td>`).join('')}
+        <td class="price">${currency(row.value)}</td>
+      </tr>`).join('') : `<tr><td colspan="${data.types.length + 2}">No buyers in this period.</td></tr>`;
+  }
+
+  async function loadEmptyPacksReport() {
+    if (!$('eprep-bytype-body')) return;
+    const from = $('eprep-from').value || firstOfMonth();
+    const to   = $('eprep-to').value   || todayIso();
+    const profileId = $('eprep-profile-select').value;
+    const params = new URLSearchParams({ from, to });
+    if (profileId) params.set('profileId', profileId);
+    state.emptyPacksReportLoading = true;
+    state.emptyPacksReportData = null;
+    renderEmptyPacksReport();
+    try {
+      state.emptyPacksReportData = await request(`/api/reports/empty-packs?${params}`);
+    } catch (error) {
+      adminMessage(error.message, true);
+      state.emptyPacksReportData = null;
+    } finally {
+      state.emptyPacksReportLoading = false;
+      renderEmptyPacksReport();
+    }
+  }
+
+  async function downloadEmptyPacksReportCsv() {
+    if (!state.emptyPacksReportData) return;
+    const { filters } = state.emptyPacksReportData;
+    const params = new URLSearchParams({ from: filters.from, to: filters.to });
+    if (filters.profileId) params.set('profileId', filters.profileId);
+    try {
+      const response = await fetch(`/api/reports/empty-packs.csv?${params}`, { credentials: 'include' });
+      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+      const text = await response.text();
+      downloadTextFile(text, `empty-packs-${filters.from}-to-${filters.to}.csv`, 'text/csv');
+      toast('Empty packets summary downloaded.');
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  }
+
+  // ---- Empty pack scheme (Admin tab) --------------------------------------
+  function renderEmptyPackScheme() {
+    if (!$('eps-types-body')) return;
+    if (!$('eps-valid-from').value) {
+      // Built from todayIso() (IST), not new Date()/toISOString() — those
+      // convert through UTC and can land on the wrong day depending on the
+      // browser's own timezone, same reasoning as todayIso() itself above.
+      const [y, m] = todayIso().split('-').map(Number);
+      const nextY = m === 12 ? y + 1 : y;
+      const nextM = m === 12 ? 1 : m + 1;
+      $('eps-valid-from').value = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
+    }
+    const data = state.emptyPackSchemeData;
+    if (!data) { $('eps-types-body').innerHTML = '<tr><td colspan="5">Loading…</td></tr>'; return; }
+    $('eps-types-body').innerHTML = data.types.map((t) => {
+      const history = t.history.map((h) => `${dateLabel(h.valid_from)} → ${currency(h.rate)}`).join(' · ');
+      return `<tr>
+        <td><div class="product-cell"><span>${escapeHtml(t.name)}</span></div></td>
+        <td class="stock-quiet">${escapeHtml(t.grp || '—')}</td>
+        <td class="price">${t.currentRate !== null ? currency(t.currentRate) : '—'}</td>
+        <td><div class="inline-rate"><input class="admin-number-input eps-rate-input" data-type-id="${escapeHtml(t.id)}" type="number" min="0" step="0.01" placeholder="keep" aria-label="New rate for ${escapeHtml(t.name)}" /></div></td>
+        <td class="stock-quiet">${history || '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function loadEmptyPackScheme() {
+    if (!$('eps-types-body')) return;
+    state.emptyPackSchemeLoading = true;
+    try {
+      state.emptyPackSchemeData = await request('/api/empty-packs/scheme');
+    } catch (error) {
+      adminMessage(error.message, true);
+      state.emptyPackSchemeData = null;
+    } finally {
+      state.emptyPackSchemeLoading = false;
+      renderEmptyPackScheme();
+    }
+  }
+
+  async function saveEmptyPackScheme() {
+    const validFrom = $('eps-valid-from').value;
+    if (!validFrom) return adminMessage('Pick an effective date.', true);
+    const inputs = Array.from(document.querySelectorAll('.eps-rate-input'));
+    const rates = inputs
+      .filter((input) => input.value !== '')
+      .map((input) => ({ typeId: Number(input.dataset.typeId), rate: Number(input.value) }));
+    if (!rates.length) return adminMessage('Enter at least one new rate (or 0 to stop accepting a product).', true);
+    if (rates.some((r) => !Number.isFinite(r.rate) || r.rate < 0)) {
+      return adminMessage('Rates must be zero or a positive number.', true);
+    }
+    if (!window.confirm(`Apply ${rates.length} rate change(s) from ${formatDdMmYy(validFrom)}?`)) return;
+    try {
+      state.emptyPackSchemeData = await request('/api/empty-packs/scheme', adminOptions({ method: 'POST', body: JSON.stringify({ validFrom, rates }) }));
+      renderEmptyPackScheme();
+      state.emptyPackRates = undefined; // the payment modal's cached rates may now be stale
+      adminMessage('Empty pack rates updated.');
+      toast(`Rates updated from ${formatDdMmYy(validFrom)}.`);
+    } catch (error) { adminMessage(error.message, true); }
+  }
+
+  async function addEmptyPackType(event) {
+    event.preventDefault();
+    const name = $('eps-type-name').value.trim();
+    const grp = $('eps-type-grp').value.trim();
+    const rate = Number($('eps-type-rate').value);
+    if (!name) return adminMessage('Enter a product name.', true);
+    if (!Number.isFinite(rate) || rate < 0) return adminMessage('Enter a non-negative starting rate.', true);
+    try {
+      state.emptyPackSchemeData = await request('/api/empty-packs/types', adminOptions({ method: 'POST', body: JSON.stringify({ name, grp, rate }) }));
+      $('eps-add-type-form').reset();
+      renderEmptyPackScheme();
+      state.emptyPackRates = undefined;
+      adminMessage(`${name} added to the empty pack scheme.`);
+      toast('Product type added.');
+    } catch (error) { adminMessage(error.message, true); }
   }
 
   function renderReport() {
@@ -1803,9 +1985,15 @@
   async function submitPayment(event) {
     event.preventDefault();
     if (!state.session || state.session.status === 'SETTLED') return;
-    const isCheque = $('payment-method').value === 'CHEQUE';
+    const method = $('payment-method').value;
+    const isCheque = method === 'CHEQUE';
+    // Only treat this as the itemized flow when the entry block is actually
+    // showing — if the rates fetch failed, togglePaymentMethodFields() falls
+    // back to a plain typed amount for EMPTY_PACKETS too (see there).
+    const isEmptyPackets = method === 'EMPTY_PACKETS' && !$('payment-empty-packs-field').hidden;
     let amount = Number($('payment-amount').value);
     let chequeDetails = '';
+    let emptyPacksPayload = null;
     if (isCheque) {
       const rows = Array.from(document.querySelectorAll('#payment-cheques-list .cheque-row'));
       const cheques = rows.map((row) => ({
@@ -1818,6 +2006,14 @@
       if (cheques.some((c) => !(c.amount > 0))) return toast('Enter an amount for every cheque.', 'error');
       amount = roundMoney(cheques.reduce((sum, c) => sum + c.amount, 0));
       chequeDetails = cheques.map((c) => `#${c.serial}${c.date ? ` (${formatDdMmYy(c.date)})` : ''} ${currency(c.amount)}`).join('; ');
+    } else if (isEmptyPackets) {
+      const rows = Array.from(document.querySelectorAll('#payment-empty-packs-list .empty-pack-qty-input'));
+      const lines = rows
+        .map((input) => ({ typeId: Number(input.dataset.typeId), qty: Math.floor(Number(input.value || 0)), rate: Number(input.dataset.rate || 0) }))
+        .filter((l) => l.qty > 0);
+      if (!lines.length) return toast('Enter at least one packet quantity greater than zero.', 'error');
+      emptyPacksPayload = lines.map((l) => ({ typeId: l.typeId, qty: l.qty }));
+      amount = roundMoney(lines.reduce((sum, l) => sum + l.qty * l.rate, 0));
     }
     if (!Number.isFinite(amount) || amount <= 0) return toast('Enter a payment amount greater than zero.', 'error');
     const dateIso = $('payment-date').value || todayIso();
@@ -1827,7 +2023,9 @@
     if (chequeDetails) labelParts.push(chequeDetails);
     setBusy(true);
     try {
-      const payment = await request('/api/payments', { method: 'POST', body: JSON.stringify({ dsrId: Number(state.session.id), method: $('payment-method').value, labelInfo: labelParts.join(' · '), amount }) });
+      const body = { dsrId: Number(state.session.id), method, labelInfo: labelParts.join(' · '), amount };
+      if (emptyPacksPayload) body.emptyPacks = emptyPacksPayload;
+      const payment = await request('/api/payments', { method: 'POST', body: JSON.stringify(body) });
       state.payments.unshift(payment); // newest first to match DESC query order
       closePayment();
       toast('Payment added to this route.');
@@ -2917,6 +3115,10 @@
     $('payment-form').reset();
     $('payment-date').value = todayIso();
     $('payment-cheques-list').innerHTML = '';
+    $('payment-empty-packs-list').innerHTML = '';
+    // Refetch rates fresh each time the modal opens, rather than carrying a
+    // stale cache (or a stale failure) across separate payment entries.
+    state.emptyPackRates = undefined;
     $('payment-method-claims').hidden = state.role !== 'Admin';
     togglePaymentMethodFields();
     setHidden('payment-modal', false);
@@ -2950,20 +3152,93 @@
     if ($('payment-method').value === 'CHEQUE') $('payment-amount').value = total > 0 ? total.toFixed(2) : '';
   }
 
-  // Cheque payments collect their amount from the cheque rows below rather than
-  // a single typed figure, so the Amount field becomes a read-only running total.
-  function togglePaymentMethodFields() {
-    const isCheque = $('payment-method').value === 'CHEQUE';
+  // Empty packets collected: fetch today's per-product rates, show a packets
+  // entry row per product, and derive the amount — same read-only-total
+  // pattern as cheques, below. Cached per modal-open in state.emptyPackRates
+  // (undefined = not yet tried, null = tried and failed/empty, array = ok)
+  // so flipping the method dropdown back and forth doesn't refetch each time.
+  async function loadEmptyPackRatesForModal() {
+    if (state.emptyPackRates !== undefined) return state.emptyPackRates;
+    try {
+      const payload = await request('/api/empty-packs/rates');
+      const types = Array.isArray(payload?.types) ? payload.types : [];
+      state.emptyPackRates = types.length ? types : null;
+    } catch (_) {
+      state.emptyPackRates = null;
+    }
+    return state.emptyPackRates;
+  }
+
+  function renderEmptyPackEntryRows(types) {
+    $('payment-empty-packs-list').innerHTML = types.map((t) => `
+      <tr>
+        <td>${escapeHtml(t.name)}</td>
+        <td class="stock-quiet">${currency(t.rate)}</td>
+        <td><div class="inline-rate"><input type="number" class="admin-number-input empty-pack-qty-input" data-type-id="${escapeHtml(t.id)}" data-rate="${t.rate}" min="0" step="1" value="0" aria-label="Packets for ${escapeHtml(t.name)}" /></div></td>
+        <td class="price empty-pack-line-amount" data-type-id="${escapeHtml(t.id)}">${currency(0)}</td>
+      </tr>`).join('');
+  }
+
+  function updateEmptyPackTotal() {
+    const rows = Array.from(document.querySelectorAll('#payment-empty-packs-list .empty-pack-qty-input'));
+    let total = 0;
+    let packetTotal = 0;
+    let typeCount = 0;
+    rows.forEach((input) => {
+      const qty = Math.max(0, Math.floor(Number(input.value || 0)));
+      const rate = Number(input.dataset.rate || 0);
+      const lineAmount = roundMoney(qty * rate);
+      const cell = document.querySelector(`.empty-pack-line-amount[data-type-id="${CSS.escape(input.dataset.typeId)}"]`);
+      if (cell) cell.textContent = currency(lineAmount);
+      if (qty > 0) { packetTotal += qty; typeCount += 1; total += lineAmount; }
+    });
+    total = roundMoney(total);
+    $('payment-empty-packs-packet-count').textContent = integer(packetTotal);
+    $('payment-empty-packs-type-count').textContent = integer(typeCount);
+    $('payment-empty-packs-total').textContent = currency(total);
+    if ($('payment-method').value === 'EMPTY_PACKETS') $('payment-amount').value = total > 0 ? total.toFixed(2) : '';
+  }
+
+  // Cheque and empty-packets payments both collect their amount from rows
+  // below rather than a single typed figure, so the Amount field becomes a
+  // read-only running total for either one.
+  async function togglePaymentMethodFields() {
+    const method = $('payment-method').value;
+    const isCheque = method === 'CHEQUE';
+    const isEmptyPackets = method === 'EMPTY_PACKETS';
     const wasCheque = !$('payment-cheques-field').hidden;
+    const wasEmptyPackets = !$('payment-empty-packs-field').hidden;
     setHidden('payment-cheques-field', !isCheque);
-    $('payment-amount').readOnly = isCheque;
-    $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', isCheque);
     if (isCheque) {
+      $('payment-amount').readOnly = true;
+      setHidden('payment-empty-packs-field', true);
+      $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', true);
       if (!$('payment-cheques-list').children.length) addChequeRow();
       updateChequeTotal();
-    } else if (wasCheque) {
-      $('payment-amount').value = ''; // clear the cheque-derived total, not a user-typed figure
+      return;
     }
+    if (isEmptyPackets) {
+      const types = await loadEmptyPackRatesForModal();
+      if (types && types.length) {
+        setHidden('payment-empty-packs-field', false);
+        $('payment-amount').readOnly = true;
+        $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', true);
+        renderEmptyPackEntryRows(types);
+        updateEmptyPackTotal();
+      } else {
+        // Rates failed to load (or none are active) — fall back to a plain
+        // typed amount so collections are never blocked by this feature.
+        setHidden('payment-empty-packs-field', true);
+        $('payment-amount').readOnly = false;
+        $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', false);
+        if (!wasEmptyPackets) toast('Could not load packet rates — enter the total amount directly instead.', 'error');
+      }
+      return;
+    }
+    setHidden('payment-empty-packs-field', true);
+    $('payment-amount').readOnly = false;
+    $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', false);
+    if (wasCheque || wasEmptyPackets) $('payment-amount').value = ''; // clear the derived total, not a user-typed figure
   }
 
   // ---- Auth / login gate --------------------------------------------------
@@ -3427,6 +3702,7 @@
     enhanceSelectAsCombobox($('report-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
     enhanceSelectAsCombobox($('perf-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
     enhanceSelectAsCombobox($('pr-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
+    enhanceSelectAsCombobox($('eprep-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
     enhanceSelectAsCombobox($('settle-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
     enhanceSelectAsCombobox($('profile-stock-filter'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found', extraClass: 'filter-select' });
     $('role-select').addEventListener('change', (event) => {
@@ -3481,6 +3757,12 @@
         if (!$('pr-from').value) $('pr-from').value = firstOfMonth();
         if (!$('pr-to').value)   $('pr-to').value   = todayIso();
         if (!state.paymentsReportData && !state.paymentsReportLoading) loadPaymentsReport();
+        if (!$('eprep-from').value) $('eprep-from').value = firstOfMonth();
+        if (!$('eprep-to').value)   $('eprep-to').value   = todayIso();
+        if (!state.emptyPacksReportData && !state.emptyPacksReportLoading) loadEmptyPacksReport();
+      }
+      if (tab.dataset.adminTab === 'empty-pack-scheme') {
+        if (!state.emptyPackSchemeData && !state.emptyPackSchemeLoading) loadEmptyPackScheme();
       }
     }));
     document.querySelectorAll('[data-report-group]').forEach((tab) => tab.addEventListener('click', () => {
@@ -3495,6 +3777,11 @@
     }));
     document.querySelectorAll('[data-inv-view]').forEach((tab) => tab.addEventListener('click', () => {
       state.invView = tab.dataset.invView;
+      renderAdmin();
+      fadeIn($('admin-content'));
+    }));
+    document.querySelectorAll('[data-pr-view]').forEach((tab) => tab.addEventListener('click', () => {
+      state.prView = tab.dataset.prView;
       renderAdmin();
       fadeIn($('admin-content'));
     }));
@@ -3552,6 +3839,10 @@
     $('apply-settle-filters').addEventListener('click', () => { state.settlementData = null; state.selectedSettlementIdx = 0; loadSettlement(); });
     $('apply-pr-filters').addEventListener('click', loadPaymentsReport);
     $('pr-download-csv').addEventListener('click', downloadPaymentsReportCsv);
+    $('apply-eprep-filters').addEventListener('click', loadEmptyPacksReport);
+    $('eprep-download-csv').addEventListener('click', downloadEmptyPacksReportCsv);
+    $('eps-save-rates').addEventListener('click', saveEmptyPackScheme);
+    $('eps-add-type-form').addEventListener('submit', addEmptyPackType);
     $('download-backup').addEventListener('click', downloadBackup);
     $('settle-download-csv').addEventListener('click', downloadSettlementCsv);
     $('settle-download-snapshot').addEventListener('click', downloadSettlementSnapshot);
@@ -3595,11 +3886,12 @@
         updateTotals();
       }
       if (event.target.matches('.cheque-amount')) updateChequeTotal();
+      if (event.target.matches('.empty-pack-qty-input')) updateEmptyPackTotal();
     });
     // Number inputs change value on mouse-wheel scroll while focused; blur on scroll so
     // scrolling the page over these fields doesn't silently edit load-in/closing quantities.
     document.addEventListener('wheel', (event) => {
-      if (document.activeElement === event.target && event.target.matches('.load-input, .closing-input')) {
+      if (document.activeElement === event.target && event.target.matches('.load-input, .closing-input, .empty-pack-qty-input, .eps-rate-input')) {
         event.target.blur();
       }
     }, { passive: true });
