@@ -327,6 +327,7 @@
               <button class="admin-tab" type="button" data-admin-tab="purchases">Inventory inwarding</button>
               <button class="admin-tab" type="button" data-admin-tab="reports">Sales reports</button>
               <button class="admin-tab" type="button" data-admin-tab="payments-report">Payments &amp; balances</button>
+              <button class="admin-tab" type="button" data-admin-tab="empty-pack-scheme">Empty pack scheme</button>
               <button class="admin-tab" type="button" data-admin-tab="backup">Backup</button>
             </div>
 
@@ -594,6 +595,12 @@
             </section>
 
              <section class="admin-panel" data-admin-panel="payments-report" hidden>
+               <div class="admin-tabs sub-tabs" role="tablist" aria-label="Payments report views">
+                 <button class="admin-tab active" type="button" data-pr-view="all">All payments</button>
+                 <button class="admin-tab" type="button" data-pr-view="empty-packs">Empty packets summary</button>
+               </div>
+
+               <div data-pr-panel="all">
                <div class="report-filters">
                  <div class="report-filter-group">
                    <label class="report-filter-field">
@@ -648,7 +655,97 @@
                    </table>
                  </div>
                </div>
+               </div>
+
+               <div data-pr-panel="empty-packs" hidden>
+                 <div class="report-filters">
+                   <div class="report-filter-group">
+                     <label class="report-filter-field">
+                       <span>Buyer profile</span>
+                       <select id="eprep-profile-select"><option value="">All profiles</option></select>
+                     </label>
+                     <label class="report-filter-field"><span>From</span><input id="eprep-from" type="date" /></label>
+                     <label class="report-filter-field"><span>To</span><input id="eprep-to" type="date" /></label>
+                     <button class="button button-primary report-apply-btn" type="button" id="apply-eprep-filters">Apply</button>
+                     <button class="button button-quiet report-apply-btn" type="button" id="eprep-download-csv" disabled>
+                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV
+                     </button>
+                   </div>
+                 </div>
+
+                 <p id="eprep-loading" class="report-status-msg" hidden>Loading empty packets data…</p>
+                 <p id="eprep-empty" class="report-status-msg" hidden>No empty packets collected for the selected period.</p>
+
+                 <div id="eprep-summary" class="report-summary-strip" hidden>
+                   <div class="report-stat"><span>PACKETS COLLECTED</span><strong id="eprep-total-packets">—</strong></div>
+                   <div class="report-stat report-stat-payments"><span>CREDIT VALUE</span><strong id="eprep-total-value">—</strong></div>
+                   <div class="report-stat"><span>PRODUCTS</span><strong id="eprep-type-count">—</strong></div>
+                   <div class="report-stat"><span>BUYERS</span><strong id="eprep-buyer-count">—</strong></div>
+                 </div>
+
+                 <div id="eprep-bytype-section" hidden>
+                   <div class="admin-section-heading">
+                     <div>
+                       <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT-WISE</span></div>
+                       <h2>Packets by product</h2>
+                     </div>
+                   </div>
+                   <div class="table-shell">
+                     <table class="route-table admin-table">
+                       <thead><tr><th>PRODUCT</th><th>PACKETS</th><th>SHARE %</th><th>RATE USED</th><th>VALUE</th></tr></thead>
+                       <tbody id="eprep-bytype-body"></tbody>
+                     </table>
+                   </div>
+                 </div>
+
+                 <div id="eprep-matrix-section" hidden>
+                   <div class="admin-section-heading report-buyer-heading">
+                     <div>
+                       <div class="section-kicker"><span class="section-number">02</span><span>BUYER x PRODUCT</span></div>
+                       <h2>Packets by buyer</h2>
+                     </div>
+                   </div>
+                   <div class="table-shell">
+                     <table class="route-table admin-table" id="eprep-matrix-table">
+                       <thead id="eprep-matrix-thead"></thead>
+                       <tbody id="eprep-matrix-tbody"></tbody>
+                     </table>
+                   </div>
+                 </div>
+               </div>
              </section>
+
+            <section class="admin-panel" data-admin-panel="empty-pack-scheme" hidden>
+              <div class="admin-grid">
+                <div class="admin-card">
+                  <div class="section-kicker"><span class="section-number">01</span><span>RATE SCHEME</span></div>
+                  <h2>Update empty packet rates</h2>
+                  <p class="card-copy">Set new product-wise rates effective from a date. Leave a field blank to keep the current rate; enter 0 to stop accepting that product from this date.</p>
+                  <label class="form-field"><span>New rates apply from</span><input id="eps-valid-from" type="date" /></label>
+                  <button class="button button-primary" type="button" id="eps-save-rates">Save rates from this date</button>
+                </div>
+                <div class="admin-card notice-card">
+                  <span class="notice-icon">↗</span>
+                  <div><b>Past collections keep their own rate</b><p>Changing a rate here only affects packets collected from the effective date onward. Every packet already recorded keeps the rate it was collected at.</p></div>
+                </div>
+              </div>
+
+              <div class="admin-section-heading"><div><div class="section-kicker"><span class="section-number">02</span><span>PRODUCT TYPES</span></div><h2>Rates &amp; history</h2></div></div>
+              <div class="table-shell">
+                <table class="route-table admin-table">
+                  <thead><tr><th>PRODUCT</th><th>GROUP</th><th>CURRENT RATE</th><th>NEW RS/PACK</th><th>HISTORY</th></tr></thead>
+                  <tbody id="eps-types-body"></tbody>
+                </table>
+              </div>
+
+              <div class="admin-section-heading" style="margin-top:26px"><div><div class="section-kicker"><span class="section-number">03</span><span>NEW PRODUCT TYPE</span></div><h2>Add a new product type</h2></div></div>
+              <form class="admin-card" id="eps-add-type-form" style="max-width:520px">
+                <label class="form-field"><span>Product name</span><input id="eps-type-name" required maxlength="60" placeholder="e.g. NOVA" /></label>
+                <label class="form-field"><span>Group <em>Optional</em></span><input id="eps-type-grp" maxlength="40" placeholder="e.g. IPM" /></label>
+                <label class="form-field"><span>Starting rate</span><div class="amount-input"><span>₹</span><input id="eps-type-rate" type="number" min="0" step="0.01" required placeholder="0.00" /></div></label>
+                <button class="button button-quiet compact-button" type="submit" id="eps-add-type-btn">+ Add a new product type</button>
+              </form>
+            </section>
 
             <section class="admin-panel" data-admin-panel="backup" hidden>
               <div class="admin-grid">
@@ -761,6 +858,19 @@
             <div id="payment-cheques-list" class="cheque-rows"></div>
             <button class="button button-quiet compact-button add-cheque-btn" type="button" id="add-cheque-row">+ Add cheque</button>
             <div class="cheque-total-row"><span>Total</span><strong id="payment-cheques-total">₹0.00</strong></div>
+          </div>
+          <div class="form-field" id="payment-empty-packs-field" hidden>
+            <span>Empty packets collected</span>
+            <div class="table-shell">
+              <table class="route-table empty-pack-table">
+                <thead><tr><th>PRODUCT</th><th>RS/PACK</th><th>PACKETS</th><th>AMOUNT</th></tr></thead>
+                <tbody id="payment-empty-packs-list"></tbody>
+              </table>
+            </div>
+            <div class="cheque-total-row">
+              <span><span id="payment-empty-packs-packet-count">0</span> packets · <span id="payment-empty-packs-type-count">0</span> products</span>
+              <strong id="payment-empty-packs-total">₹0.00</strong>
+            </div>
           </div>
           <div class="form-row-2col">
             <label class="form-field"><span>Reference / label <em>Optional</em></span><input id="payment-label" type="text" maxlength="80" placeholder="e.g. Till 04 · receipt 182" data-testid="input-payment-label" /></label>

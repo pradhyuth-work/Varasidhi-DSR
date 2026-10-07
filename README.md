@@ -80,7 +80,8 @@ JSON file (`dsr-backup-YYYY-MM-DD-HHMM.json`) via `GET /api/backup`.
 - **Admin only.** The route is gated on the session cookie's role; a `user`
   session gets a 403.
 - **Everything is included:** `profiles`, `products`, `dsr_sessions`,
-  `dsr_items`, `payments`, `purchases`, `stock_returns`, `stock_adjustments`,
+  `dsr_items`, `payments`, `empty_pack_types`, `empty_pack_rates`,
+  `empty_pack_items`, `purchases`, `stock_returns`, `stock_adjustments`,
   `balance_adjustments`.
 - **Shape:** `{ format, version, generated_at, table_order, row_counts, tables }`.
   `table_order` lists tables parent-before-child, so replaying inserts in that
@@ -141,6 +142,40 @@ adjusts `profiles.current_balance` via `PATCH /api/profiles/:id/balance`.
   when created, and settling recomputes `current_balance` from that snapshot —
   so a mid-route correction would be silently overwritten at settle. Settle
   first, then correct.
+
+## Empty packets collection
+
+The **Empty packets** payment method is product-wise (packets × rate) instead
+of a typed lump sum. Admin → **Empty pack scheme** manages the product list
+and their rates; the payment modal and the **Payments & balances → Empty
+packets summary** report build on top of it.
+
+- **Separate product list.** `empty_pack_types` is its own master list, not
+  linked to `products` — a packet "product" (e.g. SHIFT) covers several pack
+  sizes of the same family.
+- **Effective-dated rates.** `empty_pack_rates` holds one row per `(type,
+  valid_from)`; the rate in force on any date is the latest row with
+  `valid_from <=` that date. A rate of `0` means "stop accepting this product
+  from that date" — it drops out of `GET /api/empty-packs/rates` (what the
+  payment modal offers) but stays visible, at ₹0, on the Admin scheme table.
+- **Priced at today, server-side.** The payment modal has no backdating; the
+  amount is `Σ(qty × today's rate)`, computed and verified on the server —
+  any client-sent `amount` is ignored once `emptyPacks` lines are present.
+- **Still an ordinary payment.** An itemized collection is one `payments` row
+  (method `EMPTY_PACKETS`) plus one `empty_pack_items` row per product line,
+  linked by `payment_id` (cascades on delete). Balances, settlement, locking,
+  and deletion all work unchanged — nothing elsewhere had to special-case it.
+- **Old entries keep working.** A legacy lump-sum `EMPTY_PACKETS` payment
+  (typed amount, no `emptyPacks` array) is still accepted — the API only
+  itemizes when `emptyPacks` is sent. The summary report folds any such rows
+  into a single **"Not itemised"** line so its total still reconciles with
+  Payments & balances for the same range.
+
+**Deployment:** run `npm run db:schema` against Supabase *before* deploying
+this code — the three new tables (and the seeded SHIFT/DEFINE/DUOS/EDGE/FSK/
+PRO/SCB/C·CRUSH/FRUIT rates, effective 2026-09-01) must exist first. Nothing
+else needs sequencing: `emptyPacks` is optional on `POST /api/payments`, so
+older deployed clients keep working against the new schema unchanged.
 
 ## Notes
 
