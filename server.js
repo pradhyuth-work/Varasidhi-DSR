@@ -1548,6 +1548,36 @@ app.post("/api/empty-packs/types", async (req, res) => {
   }
 });
 
+// Mirrors DELETE /api/products/:id and /api/profiles/:id: refuse when the
+// type has collection history (protects past empty-packets reports), unless
+// ?force=true, which cascades the delete through its items and rate rows.
+app.delete("/api/empty-packs/types/:id", async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can delete a packet type.");
+  const typeId = positiveInteger(req.params.id);
+  if (typeId === null || typeId < 1) return fail(res, 400, "Invalid product type id.");
+  const force = req.query.force === "true";
+  try {
+    const type = await database.get("SELECT id FROM empty_pack_types WHERE id = ?", [typeId]);
+    if (!type) return fail(res, 404, "Product type not found.");
+    const history = await database.get(
+      "SELECT COUNT(*) AS count FROM empty_pack_items WHERE type_id = ?",
+      [typeId],
+    );
+    if (Number(history?.count) > 0 && !force) {
+      return fail(res, 409, "This product has collection history and cannot be deleted.");
+    }
+    await withTransaction(async (tx) => {
+      await tx.run("DELETE FROM empty_pack_items WHERE type_id = ?", [typeId]);
+      await tx.run("DELETE FROM empty_pack_rates WHERE type_id = ?", [typeId]);
+      await tx.run("DELETE FROM empty_pack_types WHERE id = ?", [typeId]);
+    });
+    res.status(204).end();
+  } catch (error) {
+    console.error("Failed to delete empty pack type", error);
+    fail(res, 500, "Unable to delete the product type.");
+  }
+});
+
 app.post("/api/payments", async (req, res) => {
   const dsrId = positiveInteger(req.body?.dsrId);
   const method = String(req.body?.method || "").trim();

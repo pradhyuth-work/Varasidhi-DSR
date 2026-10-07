@@ -744,7 +744,7 @@
       $('eps-valid-from').value = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
     }
     const data = state.emptyPackSchemeData;
-    if (!data) { $('eps-types-body').innerHTML = '<tr><td colspan="5">Loading…</td></tr>'; return; }
+    if (!data) { $('eps-types-body').innerHTML = '<tr><td colspan="7">Loading…</td></tr>'; return; }
     $('eps-types-body').innerHTML = data.types.map((t) => {
       const history = t.history.map((h) => `${dateLabel(h.valid_from)} → ${currency(h.rate)}`).join(' · ');
       return `<tr>
@@ -752,7 +752,9 @@
         <td class="stock-quiet">${escapeHtml(t.grp || '—')}</td>
         <td class="price">${t.currentRate !== null ? currency(t.currentRate) : '—'}</td>
         <td><div class="inline-rate"><input class="admin-number-input eps-rate-input" data-type-id="${escapeHtml(t.id)}" type="number" min="0" step="0.01" placeholder="keep" aria-label="New rate for ${escapeHtml(t.name)}" /></div></td>
+        <td><button class="button button-quiet compact-button eps-rate-save" type="button" data-type-id="${escapeHtml(t.id)}">Update</button></td>
         <td class="stock-quiet">${history || '—'}</td>
+        <td><button class="delete-profile" type="button" data-delete-empty-pack-type="${escapeHtml(t.id)}">Delete</button></td>
       </tr>`;
     }).join('');
   }
@@ -771,24 +773,66 @@
     }
   }
 
-  async function saveEmptyPackScheme() {
-    const validFrom = $('eps-valid-from').value;
+  // Shared by the bulk "Save rates from this date" button and each row's own
+  // "Update" button — both just differ in how many {typeId, rate} entries
+  // they send to the same endpoint.
+  async function applyEmptyPackRates(rates, validFrom, confirmMessage) {
     if (!validFrom) return adminMessage('Pick an effective date.', true);
-    const inputs = Array.from(document.querySelectorAll('.eps-rate-input'));
-    const rates = inputs
-      .filter((input) => input.value !== '')
-      .map((input) => ({ typeId: Number(input.dataset.typeId), rate: Number(input.value) }));
     if (!rates.length) return adminMessage('Enter at least one new rate (or 0 to stop accepting a product).', true);
     if (rates.some((r) => !Number.isFinite(r.rate) || r.rate < 0)) {
       return adminMessage('Rates must be zero or a positive number.', true);
     }
-    if (!window.confirm(`Apply ${rates.length} rate change(s) from ${formatDdMmYy(validFrom)}?`)) return;
+    if (!window.confirm(confirmMessage)) return;
     try {
       state.emptyPackSchemeData = await request('/api/empty-packs/scheme', adminOptions({ method: 'POST', body: JSON.stringify({ validFrom, rates }) }));
       renderEmptyPackScheme();
       state.emptyPackRates = undefined; // the payment modal's cached rates may now be stale
       adminMessage('Empty pack rates updated.');
       toast(`Rates updated from ${formatDdMmYy(validFrom)}.`);
+    } catch (error) { adminMessage(error.message, true); }
+  }
+
+  async function saveEmptyPackScheme() {
+    const validFrom = $('eps-valid-from').value;
+    const rates = Array.from(document.querySelectorAll('.eps-rate-input'))
+      .filter((input) => input.value !== '')
+      .map((input) => ({ typeId: Number(input.dataset.typeId), rate: Number(input.value) }));
+    await applyEmptyPackRates(rates, validFrom, `Apply ${rates.length} rate change(s) from ${formatDdMmYy(validFrom)}?`);
+  }
+
+  async function saveEmptyPackSingleRate(typeId) {
+    const validFrom = $('eps-valid-from').value;
+    const input = document.querySelector(`.eps-rate-input[data-type-id="${CSS.escape(String(typeId))}"]`);
+    const rate = Number(input?.value);
+    if (input?.value === '' || !Number.isFinite(rate)) {
+      return adminMessage('Enter a new rate for this product first.', true);
+    }
+    const type = state.emptyPackSchemeData?.types.find((t) => Number(t.id) === Number(typeId));
+    const name = type ? type.name : 'this product';
+    await applyEmptyPackRates([{ typeId: Number(typeId), rate }], validFrom, `Set ${name}'s rate to ${currency(rate)} from ${formatDdMmYy(validFrom)}?`);
+  }
+
+  // Mirrors deleteProduct/deleteProfile's history-protected, force-delete-with-
+  // warning pattern.
+  async function deleteEmptyPackType(typeId) {
+    if (!window.confirm('Delete this product type?')) return;
+    const url = (force) => `/api/empty-packs/types/${encodeURIComponent(typeId)}${force ? '?force=true' : ''}`;
+    try {
+      try {
+        await request(url(false), adminOptions({ method: 'DELETE' }));
+      } catch (error) {
+        if (!/history/i.test(error.message)) throw error;
+        if (!window.confirm('This product has collection history.\n\nFORCE DELETE will permanently remove it AND every packet line ever recorded against it — past empty-packets reports will lose that product\'s figures. This cannot be undone.\n\nContinue?')) {
+          adminMessage('Delete cancelled.');
+          return;
+        }
+        await request(url(true), adminOptions({ method: 'DELETE' }));
+      }
+      state.emptyPackSchemeData = { types: (state.emptyPackSchemeData?.types || []).filter((t) => Number(t.id) !== Number(typeId)) };
+      renderEmptyPackScheme();
+      state.emptyPackRates = undefined; // the payment modal's cached rates may now be stale
+      adminMessage('Product type deleted.');
+      toast('Product type removed from the empty pack scheme.');
     } catch (error) { adminMessage(error.message, true); }
   }
 
@@ -3922,6 +3966,10 @@
       if (productDeleteButton) deleteProduct(productDeleteButton.dataset.deleteProduct);
       const purchaseDeleteButton = event.target.closest('[data-delete-purchase]');
       if (purchaseDeleteButton) deletePurchase(purchaseDeleteButton.dataset.deletePurchase);
+      const epsRateSaveButton = event.target.closest('[data-type-id].eps-rate-save');
+      if (epsRateSaveButton) saveEmptyPackSingleRate(epsRateSaveButton.dataset.typeId);
+      const epsTypeDeleteButton = event.target.closest('[data-delete-empty-pack-type]');
+      if (epsTypeDeleteButton) deleteEmptyPackType(epsTypeDeleteButton.dataset.deleteEmptyPackType);
       const settleCard = event.target.closest('[data-settle-idx]');
       if (settleCard) { state.selectedSettlementIdx = Number(settleCard.dataset.settleIdx); renderSettlement(); }
       const pageBtn = event.target.closest('[data-page-target]');
