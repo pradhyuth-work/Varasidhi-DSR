@@ -2035,9 +2035,15 @@
     // showing — if the rates fetch failed, togglePaymentMethodFields() falls
     // back to a plain typed amount for EMPTY_PACKETS too (see there).
     const isEmptyPackets = method === 'EMPTY_PACKETS' && !$('payment-empty-packs-field').hidden;
+    const isUpi = method === 'UPI';
     let amount = Number($('payment-amount').value);
     let chequeDetails = '';
     let emptyPacksPayload = null;
+    let upiAccountName = '';
+    if (isUpi) {
+      upiAccountName = $('payment-upi-name').value.trim();
+      if (!upiAccountName) return toast('Enter the account holder name for UPI payments.', 'error');
+    }
     if (isCheque) {
       const rows = Array.from(document.querySelectorAll('#payment-cheques-list .cheque-row'));
       const cheques = rows.map((row) => ({
@@ -2065,6 +2071,7 @@
     const labelParts = [formatDdMmYy(dateIso)];
     if (refText) labelParts.push(refText);
     if (chequeDetails) labelParts.push(chequeDetails);
+    if (upiAccountName) labelParts.push(`A/C: ${upiAccountName}`);
     setBusy(true);
     try {
       const body = { dsrId: Number(state.session.id), method, labelInfo: labelParts.join(' · '), amount };
@@ -3250,8 +3257,11 @@
     const method = $('payment-method').value;
     const isCheque = method === 'CHEQUE';
     const isEmptyPackets = method === 'EMPTY_PACKETS';
+    const isUpi = method === 'UPI';
     const wasCheque = !$('payment-cheques-field').hidden;
     const wasEmptyPackets = !$('payment-empty-packs-field').hidden;
+    setHidden('payment-upi-name-field', !isUpi);
+    if (!isUpi) $('payment-upi-name').value = '';
     setHidden('payment-cheques-field', !isCheque);
     if (isCheque) {
       $('payment-amount').readOnly = true;

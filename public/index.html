@@ -852,7 +852,11 @@
         <div class="section-kicker"><span class="section-number">03</span><span>COLLECTION</span></div>
         <h2 id="payment-modal-title">Record a payment</h2><p class="modal-intro">Add the collection against <strong id="payment-buyer-name">this route</strong>.</p>
         <form id="payment-form">
-          <label class="form-field"><span>Payment method</span><select id="payment-method" required data-testid="select-payment-method"><option value="CASH">Cash</option><option value="HDFC_SCANNER">HDFC scanner</option><option value="BANK_TRANSFER">Bank transfer</option><option value="UPI">UPI</option><option value="CHEQUE">Cheque</option><option value="EMPTY_PACKETS">Empty packets</option><option value="VOUCHERS">Vouchers</option><option value="CLAIMS" id="payment-method-claims" hidden>Claims</option></select></label>
+          <label class="form-field"><span>Payment method</span><select id="payment-method" required data-testid="select-payment-method"><option value="CASH">Cash</option><option value="HDFC_SCANNER">HDFC scanner</option><option value="BANK_TRANSFER" id="payment-method-bank-transfer" hidden>Bank transfer</option><option value="BANK_TRANSFER_HDFC">Bank transfer to HDFC</option><option value="BANK_TRANSFER_UNION">Bank transfer to Union</option><option value="UPI">UPI</option><option value="CHEQUE">Cheque</option><option value="EMPTY_PACKETS">Empty packets</option><option value="VOUCHERS">Vouchers</option><option value="CLAIMS" id="payment-method-claims" hidden>Claims</option></select></label>
+          <div class="form-field" id="payment-upi-name-field" hidden>
+            <span>Account holder name</span>
+            <input id="payment-upi-name" type="text" maxlength="80" placeholder="Name on the UPI account" data-testid="input-payment-upi-name" />
+          </div>
           <div class="form-field" id="payment-cheques-field" hidden>
             <span>Cheques</span>
             <div id="payment-cheques-list" class="cheque-rows"></div>
