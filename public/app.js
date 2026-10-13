@@ -517,7 +517,7 @@
       renderEmptyPacksReport();
     }
     if (state.adminTab === 'empty-pack-scheme') { renderEmptyPackScheme(); }
-    if (state.adminTab === 'dashboard') { renderDashboard(); }
+    if (state.adminTab === 'dashboard') { renderAdminDashboard(); }
   }
 
   // ---- Admin dashboard: stock on hand value + buyer balances ---------------
@@ -550,7 +550,7 @@
     </li>`;
   }
 
-  function renderDashboard() {
+  function renderAdminDashboard() {
     if (!$('dash-stock-list')) return;
 
     // ---- Stock ----
@@ -652,16 +652,16 @@
       const el = event.target.closest('[data-dash-action]');
       if (!el) return;
       const action = el.dataset.dashAction;
-      if (action === 'stock-metric') { dash.stockMetric = el.dataset.value; renderDashboard(); }
-      else if (action === 'bal-filter') { dash.balFilter = el.dataset.value; renderDashboard(); }
+      if (action === 'stock-metric') { dash.stockMetric = el.dataset.value; renderAdminDashboard(); }
+      else if (action === 'bal-filter') { dash.balFilter = el.dataset.value; renderAdminDashboard(); }
       else if (action === 'show-all') {
         if (el.dataset.kind === 'stock') dash.stockAll = !dash.stockAll; else dash.balAll = !dash.balAll;
-        renderDashboard();
+        renderAdminDashboard();
       } else if (action === 'toggle-row') {
         const id = Number(el.dataset.id);
         if (el.dataset.kind === 'stock') dash.stockOpen = dash.stockOpen === id ? null : id;
         else dash.balOpen = dash.balOpen === id ? null : id;
-        renderDashboard();
+        renderAdminDashboard();
       } else if (action === 'focus') {
         const target = $(el.dataset.dashTarget);
         if (!target) return;
@@ -675,12 +675,12 @@
         Promise.resolve(loadAdminData()).finally(() => { el.disabled = false; });
       }
     });
-    $('dash-stock-search').addEventListener('input', (e) => { dash.stockQuery = e.target.value; renderDashboard(); });
-    $('dash-bal-search').addEventListener('input', (e) => { dash.balQuery = e.target.value; renderDashboard(); });
-    $('dash-stock-sort').addEventListener('change', (e) => { dash.stockSort = e.target.value; renderDashboard(); });
-    $('dash-bal-sort').addEventListener('change', (e) => { dash.balSort = e.target.value; renderDashboard(); });
-    $('dash-stock-hide-zero').addEventListener('change', (e) => { dash.stockHideZero = e.target.checked; renderDashboard(); });
-    $('dash-bal-hidden').addEventListener('change', (e) => { dash.balHidden = e.target.checked; renderDashboard(); });
+    $('dash-stock-search').addEventListener('input', (e) => { dash.stockQuery = e.target.value; renderAdminDashboard(); });
+    $('dash-bal-search').addEventListener('input', (e) => { dash.balQuery = e.target.value; renderAdminDashboard(); });
+    $('dash-stock-sort').addEventListener('change', (e) => { dash.stockSort = e.target.value; renderAdminDashboard(); });
+    $('dash-bal-sort').addEventListener('change', (e) => { dash.balSort = e.target.value; renderAdminDashboard(); });
+    $('dash-stock-hide-zero').addEventListener('change', (e) => { dash.stockHideZero = e.target.checked; renderAdminDashboard(); });
+    $('dash-bal-hidden').addEventListener('change', (e) => { dash.balHidden = e.target.checked; renderAdminDashboard(); });
   }
 
   function renderPaymentsReport() {
