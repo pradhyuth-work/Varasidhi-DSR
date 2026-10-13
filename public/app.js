@@ -15,7 +15,7 @@
     balanceAdjustmentsPage: 0,
     role: 'Store Manager',
     view: 'dsr',
-    adminTab: 'masters',
+    adminTab: 'dashboard',
     loading: true,
     busy: false,
     refreshing: false,
@@ -227,13 +227,16 @@
   async function loadAdminData() {
     if (state.role !== 'Admin') return;
     try {
-      const [productsPayload, purchasesPayload, adjustmentsPayload, balanceAdjustmentsPayload] = await Promise.all([
+      const [productsPayload, purchasesPayload, adjustmentsPayload, balanceAdjustmentsPayload, profilesPayload] = await Promise.all([
         request('/api/products'),
         request('/api/purchases'),
         request('/api/stock-adjustments'),
         request('/api/balance-adjustments'),
+        request('/api/profiles'),
       ]);
       state.products = Array.isArray(productsPayload?.products) ? productsPayload.products : [];
+      if (Array.isArray(profilesPayload?.profiles)) state.profiles = profilesPayload.profiles;
+      state.dashUpdated = new Date().toISOString();
       state.purchases = Array.isArray(purchasesPayload?.purchases) ? purchasesPayload.purchases : [];
       state.adjustments = Array.isArray(adjustmentsPayload?.adjustments) ? adjustmentsPayload.adjustments : [];
       state.balanceAdjustments = Array.isArray(balanceAdjustmentsPayload?.adjustments) ? balanceAdjustmentsPayload.adjustments : [];
@@ -514,6 +517,170 @@
       renderEmptyPacksReport();
     }
     if (state.adminTab === 'empty-pack-scheme') { renderEmptyPackScheme(); }
+    if (state.adminTab === 'dashboard') { renderDashboard(); }
+  }
+
+  // ---- Admin dashboard: stock on hand value + buyer balances ---------------
+  // Rendered purely from state.products / state.profiles (both already loaded
+  // for the admin view), so it needs no endpoint of its own. All interactivity
+  // (search, sort, filters, expand rows, jump-to) is client-side.
+  const dash = {
+    stockMetric: 'value', stockSort: 'high', stockQuery: '', stockHideZero: false, stockAll: false, stockOpen: null,
+    balFilter: 'all', balSort: 'high', balQuery: '', balHidden: true, balAll: false, balOpen: null,
+  };
+  const DASH_LIMIT = 8;
+
+  function dashSort(rows, mode, key) {
+    const out = rows.slice();
+    if (mode === 'name') out.sort((a, b) => a.name.localeCompare(b.name));
+    else if (mode === 'low') out.sort((a, b) => a[key] - b[key] || a.name.localeCompare(b.name));
+    else out.sort((a, b) => b[key] - a[key] || a.name.localeCompare(b.name));
+    return out;
+  }
+
+  function dashRowHtml({ kind, id, name, main, sub, pct, tone, open, detail }) {
+    const key = `${kind}-${id}`;
+    return `<li class="dash-row${open ? ' open' : ''}">
+      <button type="button" class="dash-row-main" data-dash-action="toggle-row" data-kind="${kind}" data-id="${escapeHtml(id)}" aria-expanded="${open ? 'true' : 'false'}" aria-controls="dash-detail-${escapeHtml(key)}" title="${escapeHtml(name)} — ${escapeHtml(main)}">
+        <span class="dash-row-name">${escapeHtml(name)}</span>
+        <span class="dash-row-val">${escapeHtml(main)}<small>${escapeHtml(sub)}</small></span>
+        <span class="dash-bar" aria-hidden="true"><i class="${tone}" style="width:${pct}%"></i></span>
+      </button>
+      <div class="dash-detail" id="dash-detail-${escapeHtml(key)}"${open ? '' : ' hidden'}>${detail}</div>
+    </li>`;
+  }
+
+  function renderDashboard() {
+    if (!$('dash-stock-list')) return;
+
+    // ---- Stock ----
+    const stockAll = state.products.map((p) => {
+      const qty = Number(p.warehouse_stock) || 0;
+      const rate = Number(p.unit_price) || 0;
+      return { id: p.id, name: p.name || '', qty, rate, value: roundMoney(qty * rate) };
+    });
+    const totalValue = roundMoney(stockAll.reduce((sum, r) => sum + r.value, 0));
+    const totalUnits = stockAll.reduce((sum, r) => sum + r.qty, 0);
+    const stockedCount = stockAll.filter((r) => r.qty > 0).length;
+    $('dash-kpi-stock-value').textContent = currency(totalValue);
+    $('dash-kpi-stock-sub').textContent = `${integer(stockAll.length)} products · valued at current rates`;
+    $('dash-kpi-units').textContent = integer(totalUnits);
+    $('dash-kpi-units-sub').textContent = `${integer(stockedCount)} of ${integer(stockAll.length)} products in stock`;
+
+    const byUnits = dash.stockMetric === 'units';
+    const sq = dash.stockQuery.trim().toLowerCase();
+    let stockRows = stockAll.filter((r) => (!sq || r.name.toLowerCase().includes(sq)) && (!dash.stockHideZero || r.qty > 0));
+    stockRows = dashSort(stockRows, dash.stockSort, byUnits ? 'qty' : 'value');
+    const stockMax = Math.max(0, ...stockRows.map((r) => (byUnits ? r.qty : r.value)));
+    const stockShown = dash.stockAll || sq ? stockRows : stockRows.slice(0, DASH_LIMIT);
+    $('dash-stock-list').innerHTML = stockShown.length ? stockShown.map((r) => {
+      const metric = byUnits ? r.qty : r.value;
+      const share = totalValue > 0 ? (r.value / totalValue) * 100 : 0;
+      return dashRowHtml({
+        kind: 'stock', id: r.id, name: r.name,
+        main: byUnits ? `${integer(r.qty)} units` : currency(r.value),
+        sub: byUnits ? currency(r.value) : `${integer(r.qty)} units`,
+        pct: stockMax > 0 ? Math.max(metric > 0 ? 2 : 0, (metric / stockMax) * 100).toFixed(1) : 0,
+        tone: r.qty <= 0 ? 'tone-muted' : 'tone-teal',
+        open: dash.stockOpen === r.id,
+        detail: `<dl class="dash-dl">
+          <div><dt>Units on hand</dt><dd>${integer(r.qty)}</dd></div>
+          <div><dt>Rate</dt><dd>${currency(r.rate)}</dd></div>
+          <div><dt>Stock value</dt><dd>${currency(r.value)}</dd></div>
+          <div><dt>Share of stock value</dt><dd>${share.toFixed(1)}%</dd></div>
+        </dl>
+        <button type="button" class="button button-quiet compact-button" data-dash-action="goto" data-tab="purchases">Inward / correct stock →</button>`,
+      });
+    }).join('') : `<li class="dash-empty">${stockAll.length ? 'No products match.' : 'No products yet.'}</li>`;
+    $('dash-stock-more').innerHTML = !sq && stockRows.length > DASH_LIMIT
+      ? `<button type="button" class="button button-quiet compact-button" data-dash-action="show-all" data-kind="stock">${dash.stockAll ? 'Show top ' + DASH_LIMIT : 'Show all ' + integer(stockRows.length)}</button>`
+      : '';
+
+    // ---- Balances ----
+    const scope = state.profiles.filter((p) => dash.balHidden || !p.hidden);
+    const balAll = scope.map((p) => ({ id: p.id, name: p.name || '', hidden: !!p.hidden, bal: roundMoney(Number(p.current_balance) || 0) }));
+    const owing = roundMoney(balAll.reduce((sum, r) => sum + (r.bal > 0 ? r.bal : 0), 0));
+    const credit = roundMoney(balAll.reduce((sum, r) => sum + (r.bal < 0 ? -r.bal : 0), 0));
+    const owingCount = balAll.filter((r) => r.bal > 0).length;
+    $('dash-kpi-balance').textContent = currency(roundMoney(owing - credit));
+    $('dash-kpi-balance-sub').textContent = credit > 0 ? `${currency(owing)} owing · ${currency(credit)} credit` : `across ${integer(balAll.length)} buyers`;
+    $('dash-kpi-buyers').textContent = `${integer(owingCount)} / ${integer(balAll.length)}`;
+    $('dash-kpi-buyers-sub').textContent = owingCount ? `largest due ${currency(Math.max(...balAll.map((r) => r.bal)))}` : 'no outstanding dues';
+
+    const bq = dash.balQuery.trim().toLowerCase();
+    let balRows = balAll.filter((r) => (!bq || r.name.toLowerCase().includes(bq))
+      && (dash.balFilter === 'all' || (dash.balFilter === 'owing' ? r.bal > 0 : r.bal < 0)));
+    balRows = dashSort(balRows, dash.balSort, 'bal');
+    const balMax = Math.max(0, ...balRows.map((r) => Math.abs(r.bal)));
+    const balShown = dash.balAll || bq ? balRows : balRows.slice(0, DASH_LIMIT);
+    $('dash-bal-list').innerHTML = balShown.length ? balShown.map((r) => {
+      const share = r.bal > 0 && owing > 0 ? (r.bal / owing) * 100 : 0;
+      return dashRowHtml({
+        kind: 'bal', id: r.id, name: r.name + (r.hidden ? ' (hidden)' : ''),
+        main: currency(r.bal),
+        sub: r.bal > 0 ? 'owing' : r.bal < 0 ? 'credit' : 'settled',
+        pct: balMax > 0 ? Math.max(r.bal !== 0 ? 2 : 0, (Math.abs(r.bal) / balMax) * 100).toFixed(1) : 0,
+        tone: r.bal > 0 ? 'tone-amber' : r.bal < 0 ? 'tone-red' : 'tone-muted',
+        open: dash.balOpen === r.id,
+        detail: `<dl class="dash-dl">
+          <div><dt>Balance</dt><dd>${currency(r.bal)}</dd></div>
+          <div><dt>Status</dt><dd>${r.bal > 0 ? 'Owes money' : r.bal < 0 ? 'In credit' : 'Settled'}</dd></div>
+          <div><dt>Share of total owing</dt><dd>${r.bal > 0 ? share.toFixed(1) + '%' : '—'}</dd></div>
+          <div><dt>Visibility</dt><dd>${r.hidden ? 'Hidden from buyer picker' : 'Active'}</dd></div>
+        </dl>
+        <button type="button" class="button button-quiet compact-button" data-dash-action="goto" data-tab="profiles">Manage / correct balance →</button>`,
+      });
+    }).join('') : `<li class="dash-empty">${balAll.length ? 'No buyers match.' : 'No buyer profiles yet.'}</li>`;
+    $('dash-bal-more').innerHTML = !bq && balRows.length > DASH_LIMIT
+      ? `<button type="button" class="button button-quiet compact-button" data-dash-action="show-all" data-kind="bal">${dash.balAll ? 'Show top ' + DASH_LIMIT : 'Show all ' + integer(balRows.length)}</button>`
+      : '';
+
+    // ---- Control state ----
+    document.querySelectorAll('[data-dash-action="stock-metric"]').forEach((b) => {
+      const on = b.dataset.value === dash.stockMetric; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on));
+    });
+    document.querySelectorAll('[data-dash-action="bal-filter"]').forEach((b) => {
+      const on = b.dataset.value === dash.balFilter; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on));
+    });
+    $('dash-updated').textContent = state.dashUpdated ? `Updated ${timeLabel(state.dashUpdated)}` : '';
+  }
+
+  function bindDashboard() {
+    const root = $('dash-root');
+    if (!root) return;
+    root.addEventListener('click', (event) => {
+      const el = event.target.closest('[data-dash-action]');
+      if (!el) return;
+      const action = el.dataset.dashAction;
+      if (action === 'stock-metric') { dash.stockMetric = el.dataset.value; renderDashboard(); }
+      else if (action === 'bal-filter') { dash.balFilter = el.dataset.value; renderDashboard(); }
+      else if (action === 'show-all') {
+        if (el.dataset.kind === 'stock') dash.stockAll = !dash.stockAll; else dash.balAll = !dash.balAll;
+        renderDashboard();
+      } else if (action === 'toggle-row') {
+        const id = Number(el.dataset.id);
+        if (el.dataset.kind === 'stock') dash.stockOpen = dash.stockOpen === id ? null : id;
+        else dash.balOpen = dash.balOpen === id ? null : id;
+        renderDashboard();
+      } else if (action === 'focus') {
+        const target = $(el.dataset.dashTarget);
+        if (!target) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.classList.remove('dash-flash'); void target.offsetWidth; target.classList.add('dash-flash');
+      } else if (action === 'goto') {
+        const tab = document.querySelector(`[data-admin-tab="${el.dataset.tab}"]`);
+        if (tab) tab.click();
+      } else if (action === 'refresh') {
+        el.disabled = true;
+        Promise.resolve(loadAdminData()).finally(() => { el.disabled = false; });
+      }
+    });
+    $('dash-stock-search').addEventListener('input', (e) => { dash.stockQuery = e.target.value; renderDashboard(); });
+    $('dash-bal-search').addEventListener('input', (e) => { dash.balQuery = e.target.value; renderDashboard(); });
+    $('dash-stock-sort').addEventListener('change', (e) => { dash.stockSort = e.target.value; renderDashboard(); });
+    $('dash-bal-sort').addEventListener('change', (e) => { dash.balSort = e.target.value; renderDashboard(); });
+    $('dash-stock-hide-zero').addEventListener('change', (e) => { dash.stockHideZero = e.target.checked; renderDashboard(); });
+    $('dash-bal-hidden').addEventListener('change', (e) => { dash.balHidden = e.target.checked; renderDashboard(); });
   }
 
   function renderPaymentsReport() {
@@ -3793,10 +3960,12 @@
       fadeIn($('admin-content'));
       loadAdminData();
     });
+    bindDashboard();
     document.querySelectorAll('[data-admin-tab]').forEach((tab) => tab.addEventListener('click', () => {
       state.adminTab = tab.dataset.adminTab;
       renderAdmin();
       fadeIn($('admin-content'));
+      if (tab.dataset.adminTab === 'dashboard') loadAdminData();
       if (tab.dataset.adminTab === 'reports') {
         if (!$('report-from').value)     $('report-from').value     = firstOfMonth();
         if (!$('report-to').value)       $('report-to').value       = todayIso();

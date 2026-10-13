@@ -322,7 +322,8 @@
             </section>
             <div id="admin-feedback" class="inline-feedback" role="status" aria-live="polite"></div>
             <div class="admin-tabs" role="tablist" aria-label="Admin management">
-              <button class="admin-tab active" type="button" data-admin-tab="masters">Rate &amp; product master</button>
+              <button class="admin-tab active" type="button" data-admin-tab="dashboard">Dashboard</button>
+              <button class="admin-tab" type="button" data-admin-tab="masters">Rate &amp; product master</button>
               <button class="admin-tab" type="button" data-admin-tab="profiles">Profile / buyer manager</button>
               <button class="admin-tab" type="button" data-admin-tab="purchases">Inventory inwarding</button>
               <button class="admin-tab" type="button" data-admin-tab="reports">Sales reports</button>
@@ -331,7 +332,88 @@
               <button class="admin-tab" type="button" data-admin-tab="backup">Backup</button>
             </div>
 
-            <section class="admin-panel active" data-admin-panel="masters">
+            <section class="admin-panel active" data-admin-panel="dashboard" id="dash-root">
+              <div class="dash-head">
+                <div>
+                  <div class="section-kicker"><span class="section-number">01</span><span>OVERVIEW</span></div>
+                  <h2>Stock &amp; balances at a glance</h2>
+                  <p class="dash-sub">Tap a card to jump to its breakdown. Tap any row for details.</p>
+                </div>
+                <div class="dash-head-actions">
+                  <span class="dash-updated" id="dash-updated">—</span>
+                  <button class="button button-outline compact-button" type="button" data-dash-action="refresh" id="dash-refresh">Refresh</button>
+                </div>
+              </div>
+
+              <div class="metric-grid dash-kpis" aria-label="Dashboard totals">
+                <button class="metric-card stat-tint-teal dash-kpi" type="button" data-dash-action="focus" data-dash-target="dash-stock-card">
+                  <div class="metric-top"><span>STOCK ON HAND · VALUE</span><span class="metric-icon">▤</span></div>
+                  <strong id="dash-kpi-stock-value">—</strong>
+                  <small id="dash-kpi-stock-sub">&nbsp;</small>
+                </button>
+                <button class="metric-card stat-tint-blue dash-kpi" type="button" data-dash-action="focus" data-dash-target="dash-stock-card">
+                  <div class="metric-top"><span>UNITS IN WAREHOUSE</span><span class="metric-icon">#</span></div>
+                  <strong id="dash-kpi-units">—</strong>
+                  <small id="dash-kpi-units-sub">&nbsp;</small>
+                </button>
+                <button class="metric-card stat-tint-amber dash-kpi" type="button" data-dash-action="focus" data-dash-target="dash-bal-card">
+                  <div class="metric-top"><span>TOTAL BALANCES</span><span class="metric-icon amber">₹</span></div>
+                  <strong id="dash-kpi-balance">—</strong>
+                  <small id="dash-kpi-balance-sub">&nbsp;</small>
+                </button>
+                <button class="metric-card stat-tint-green dash-kpi" type="button" data-dash-action="focus" data-dash-target="dash-bal-card">
+                  <div class="metric-top"><span>BUYERS WITH DUES</span><span class="metric-icon teal">◉</span></div>
+                  <strong id="dash-kpi-buyers">—</strong>
+                  <small id="dash-kpi-buyers-sub">&nbsp;</small>
+                </button>
+              </div>
+
+              <div class="dash-grid">
+                <div class="admin-card dash-card" id="dash-stock-card">
+                  <div class="section-kicker"><span class="section-number">02</span><span>STOCK ON HAND</span></div>
+                  <h2>Warehouse stock by product</h2>
+                  <p class="card-copy">Valued at each product's current rate (units × rate), not purchase cost.</p>
+                  <div class="dash-controls">
+                    <input type="search" id="dash-stock-search" class="dash-search" placeholder="Search products" aria-label="Search products" autocomplete="off" />
+                    <div class="dash-seg" role="group" aria-label="Show stock by">
+                      <button type="button" class="dash-seg-btn active" data-dash-action="stock-metric" data-value="value" aria-pressed="true">Value</button>
+                      <button type="button" class="dash-seg-btn" data-dash-action="stock-metric" data-value="units" aria-pressed="false">Units</button>
+                    </div>
+                    <select id="dash-stock-sort" class="dash-select" aria-label="Sort products">
+                      <option value="high">Highest first</option>
+                      <option value="low">Lowest first</option>
+                      <option value="name">Name A–Z</option>
+                    </select>
+                    <label class="dash-check"><input type="checkbox" id="dash-stock-hide-zero" /> <span>Hide zero stock</span></label>
+                  </div>
+                  <ul class="dash-list" id="dash-stock-list"></ul>
+                  <div class="dash-more" id="dash-stock-more"></div>
+                </div>
+
+                <div class="admin-card dash-card" id="dash-bal-card">
+                  <div class="section-kicker"><span class="section-number">03</span><span>BALANCES</span></div>
+                  <h2>Balances by buyer</h2>
+                  <p class="card-copy">What each buyer currently owes. A negative balance means they are in credit.</p>
+                  <div class="dash-controls">
+                    <input type="search" id="dash-bal-search" class="dash-search" placeholder="Search buyers" aria-label="Search buyers" autocomplete="off" />
+                    <div class="dash-seg" role="group" aria-label="Filter buyers">
+                      <button type="button" class="dash-seg-btn active" data-dash-action="bal-filter" data-value="all" aria-pressed="true">All</button>
+                      <button type="button" class="dash-seg-btn" data-dash-action="bal-filter" data-value="owing" aria-pressed="false">Owing</button>
+                      <button type="button" class="dash-seg-btn" data-dash-action="bal-filter" data-value="credit" aria-pressed="false">Credit</button>
+                    </div>
+                    <select id="dash-bal-sort" class="dash-select" aria-label="Sort buyers">
+                      <option value="high">Highest first</option>
+                      <option value="low">Lowest first</option>
+                      <option value="name">Name A–Z</option>
+                    </select>
+                    <label class="dash-check"><input type="checkbox" id="dash-bal-hidden" checked /> <span>Include hidden buyers</span></label>
+                  </div>
+                  <ul class="dash-list" id="dash-bal-list"></ul>
+                  <div class="dash-more" id="dash-bal-more"></div>
+                </div>
+              </div>
+            </section>
+            <section class="admin-panel" data-admin-panel="masters" hidden>
               <div class="admin-grid">
                 <form class="admin-card" id="product-form">
                   <div class="section-kicker"><span class="section-number">01</span><span>PRODUCT MASTER</span></div>
