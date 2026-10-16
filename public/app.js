@@ -1441,7 +1441,7 @@
     const totalRevenue  = products.reduce((s, p) => s + Number(p.line_total), 0);
 
     const productRows = products.map((p) => `
-      <tr>
+      <tr ${Number(p.qty_sold) === 0 ? 'data-zero-qty="true"' : ''}>
         <td class="pivot-label-col">${escapeHtml(p.product_name)}</td>
         <td class="route-stock">${integer(p.dispatch)}</td>
         <td class="route-stock">${integer(p.closing_stock)}</td>
