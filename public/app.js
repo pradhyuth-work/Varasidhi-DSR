@@ -911,12 +911,11 @@
       $('eps-valid-from').value = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
     }
     const data = state.emptyPackSchemeData;
-    if (!data) { $('eps-types-body').innerHTML = '<tr><td colspan="7">Loading…</td></tr>'; return; }
+    if (!data) { $('eps-types-body').innerHTML = '<tr><td colspan="6">Loading…</td></tr>'; return; }
     $('eps-types-body').innerHTML = data.types.map((t) => {
       const history = t.history.map((h) => `${dateLabel(h.valid_from)} → ${currency(h.rate)}`).join(' · ');
       return `<tr>
         <td><div class="product-cell"><span>${escapeHtml(t.name)}</span></div></td>
-        <td class="stock-quiet">${escapeHtml(t.grp || '—')}</td>
         <td class="price">${t.currentRate !== null ? currency(t.currentRate) : '—'}</td>
         <td><div class="inline-rate"><input class="admin-number-input eps-rate-input" data-type-id="${escapeHtml(t.id)}" type="number" min="0" step="0.01" placeholder="keep" aria-label="New rate for ${escapeHtml(t.name)}" /></div></td>
         <td><button class="button button-quiet compact-button eps-rate-save" type="button" data-type-id="${escapeHtml(t.id)}">Update</button></td>
@@ -1609,7 +1608,7 @@
     const totalRevenue  = products.reduce((s, p) => s + Number(p.line_total), 0);
 
     const productRows = products.map((p) => `
-      <tr>
+      <tr ${Number(p.qty_sold) === 0 ? 'data-zero-qty="true"' : ''}>
         <td class="pivot-label-col">${escapeHtml(p.product_name)}</td>
         <td class="route-stock">${integer(p.dispatch)}</td>
         <td class="route-stock">${integer(p.closing_stock)}</td>

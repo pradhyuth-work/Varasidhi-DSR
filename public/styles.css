@@ -644,6 +644,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 #settle-detail-panel.snapshot-capture .settle-balance-strip { margin-top: 10px; }
 #settle-detail-panel.snapshot-capture .settle-bal-stat { padding: 8px 12px; gap: 2px; }
 #settle-detail-panel.snapshot-capture .settle-bal-stat strong { font-size: 14px; }
+#settle-detail-panel.snapshot-capture tr[data-zero-qty="true"] { display: none; }
 
 /* ── Settlement Report ─────────────────────────────────── */
 .settle-layout {
