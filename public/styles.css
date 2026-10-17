@@ -825,6 +825,22 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   box-shadow: 2px 0 6px -2px rgba(20,53,57,.10);
 }
 
+/* ── Frozen buyer column — SKU matrix ──────────────────── */
+#matrix-table th:first-child,
+#matrix-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: inherit;
+}
+#matrix-table th:first-child {
+  background: var(--surface-sunken);
+}
+#matrix-table td:first-child {
+  background: var(--paper-2);
+  box-shadow: 2px 0 6px -2px rgba(20,53,57,.10);
+}
+
 /* ── Closing sheet accent background — only this section, not the whole app ── */
 #closing-section {
   background: #ffb3b3;
