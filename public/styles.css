@@ -82,6 +82,12 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .nav-item:active { transform: translateY(1px); }
 .nav-item.active { background: rgba(226, 239, 232, .11); color: #f7f3e7; }
 .nav-item.active:before { content: ''; width: 3px; height: 17px; border-radius: 3px; background: #dfa553; margin-left: -11px; margin-right: 8px; }
+/* Group headings inside the rail ("Operations" / "Admin"). Collapsed desktop rail has no room for
+   text, so each heading shrinks to a hairline that still separates the groups. */
+.nav-group-label { color: #6f9092; font: 8px var(--mono); letter-spacing: .14em; text-transform: uppercase; padding: 12px 11px 4px; white-space: nowrap; }
+.nav-group-label:first-child { padding-top: 0; }
+.nav-group-label[hidden] { display: none; }
+.nav-item[hidden] { display: none; }
 .sidebar-divider { height: 1px; background: rgba(232, 240, 233, .1); margin: 20px 2px; flex: 0 0 auto; }
 .sidebar-bottom { margin-top: auto; display: grid; gap: 4px; padding: 2px; flex: 0 0 auto; }
 .rail-status, .rail-user { display: flex; align-items: center; gap: 10px; border-radius: 8px; padding: 8px; margin: 0 -8px; transition: background .2s; }
@@ -102,6 +108,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   .sidebar:not(.expanded) .rail-status,
   .sidebar:not(.expanded) .rail-user { justify-content: center; margin: 0; }
   .sidebar:not(.expanded) .nav-item.active:before { display: none; }
+  .sidebar:not(.expanded) .nav-group-label { padding: 0; margin: 10px 8px 6px; height: 1px; background: rgba(232, 240, 233, .1); overflow: hidden; }
+  .sidebar:not(.expanded) .nav-group-label span { display: none; }
+  .sidebar:not(.expanded) .nav-group-label:first-child { display: none; }
   /* Collapsed admin rail shows only the toggle, the nav icons, and the
      divider under them — the logo is squeezed against the 76px rail width
      with nothing to give it room, and the status/user footer has nothing
@@ -209,6 +218,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   .sidebar-divider, .sidebar-bottom { display: none; }
   .sidebar.expanded .nav-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
   .sidebar.expanded .nav-item { padding: 14px 12px; }
+  .sidebar.expanded .nav-group-label { grid-column: 1 / -1; padding: 6px 4px 0; }
+  .sidebar.expanded .nav-group-label:first-child { padding-top: 0; }
   .sidebar.expanded .nav-item.active:before { display: none; }
 }
 /* Tablet touch/layout polish — roomier touch targets and a couple of
