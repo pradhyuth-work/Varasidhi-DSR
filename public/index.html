@@ -43,6 +43,7 @@
           <div class="brand-text"><strong>Varasidhi<br>Enterprises</strong><small>GT · FIELD OPERATIONS</small></div>
         </div>
         <nav class="nav-list">
+          <div class="nav-group-label" aria-hidden="true"><span>Operations</span></div>
           <button id="nav-dashboard" class="nav-item active" type="button" data-nav="dashboard" data-testid="button-nav-dashboard" title="Today’s dispatch">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
             <span>Today’s dispatch</span>
@@ -50,6 +51,39 @@
           <button id="nav-reports" class="nav-item" type="button" data-nav="reports" data-testid="button-nav-reports" title="Route reports">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>
             <span>Route reports</span>
+          </button>
+          <div class="nav-group-label" data-admin-only aria-hidden="true" hidden><span>Admin</span></div>
+          <button class="nav-item" type="button" data-admin-only hidden data-nav-key="admin-dashboard" data-nav-tab="dashboard" data-testid="button-nav-admin-dashboard" title="Admin dashboard: stock &amp; balances at a glance">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/></svg>
+            <span>Admin dashboard</span>
+          </button>
+          <button class="nav-item" type="button" data-admin-only hidden data-nav-key="sales" data-nav-tab="reports" data-nav-then='[data-report-group="sales"]' data-testid="button-nav-sales-reports" title="Sales reports">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 17 6-6 4 4 8-8M17 7h4v4"/></svg>
+            <span>Sales reports</span>
+          </button>
+          <button class="nav-item" type="button" data-admin-only hidden data-nav-key="payments" data-nav-tab="payments-report" data-nav-then='[data-pr-view="all"]' data-testid="button-nav-payments" title="Payments &amp; balances">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+            <span>Payments &amp; balances</span>
+          </button>
+          <button class="nav-item" type="button" data-admin-only hidden data-nav-key="empty-packets" data-nav-tab="payments-report" data-nav-then='[data-pr-view="empty-packs"]' data-testid="button-nav-empty-packets" title="Empty packets summary">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18l-2 13H5zM8 7V5a4 4 0 0 1 8 0v2"/></svg>
+            <span>Empty packets</span>
+          </button>
+          <button class="nav-item" type="button" data-admin-only hidden data-nav-key="inward" data-nav-tab="purchases" data-testid="button-nav-inward" title="Inventory inwarding">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/></svg>
+            <span>Inward stock</span>
+          </button>
+          <button class="nav-item" type="button" data-admin-only hidden data-nav-key="buyers" data-nav-tab="profiles" data-testid="button-nav-buyers" title="Buyer profiles &amp; ledger accounts">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span>Buyers</span>
+          </button>
+          <button class="nav-item" type="button" data-admin-only hidden data-nav-key="products" data-nav-tab="masters" data-testid="button-nav-products" title="Rate &amp; product master">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01"/></svg>
+            <span>Products &amp; rates</span>
+          </button>
+          <button class="nav-item" type="button" data-admin-only hidden data-nav-key="scheme" data-nav-tab="empty-pack-scheme" data-testid="button-nav-empty-pack-scheme" title="Empty pack scheme">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+            <span>Empty pack scheme</span>
           </button>
         </nav>
         <div class="sidebar-divider"></div>

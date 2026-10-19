@@ -334,6 +334,7 @@
     $('view-settlement').classList.toggle('active', state.view === 'settlement');
     $('nav-dashboard').classList.toggle('active', state.view === 'dsr');
     $('nav-reports').classList.toggle('active', state.view === 'settlement');
+    syncAdminNav();
     $('admin-content').hidden = state.role !== 'Admin' || state.view !== 'admin';
     $('settlement-content').hidden = state.view !== 'settlement';
     $('profile-panel').hidden = state.view !== 'dsr';
@@ -367,6 +368,45 @@
     if (state.role === 'Admin') renderAdmin();
   }
 
+  // Which sidebar admin entry matches what is on screen right now. The admin tabs live inside
+  // the Admin Portal; the rail just gives direct links to them (Empty packets and Payments are
+  // two views of the same tab, told apart by state.prView).
+  function currentAdminNavKey() {
+    if (state.view !== 'admin') return null;
+    switch (state.adminTab) {
+      case 'dashboard': return 'admin-dashboard';
+      case 'reports': return 'sales';
+      case 'payments-report': return state.prView === 'empty-packs' ? 'empty-packets' : 'payments';
+      case 'purchases': return 'inward';
+      case 'profiles': return 'buyers';
+      case 'masters': return 'products';
+      case 'empty-pack-scheme': return 'scheme';
+      default: return null;
+    }
+  }
+
+  function syncAdminNav() {
+    const isAdmin = state.role === 'Admin';
+    const key = currentAdminNavKey();
+    document.querySelectorAll('[data-admin-only]').forEach((el) => { el.hidden = !isAdmin; });
+    document.querySelectorAll('[data-nav-key]').forEach((el) => {
+      const active = isAdmin && el.dataset.navKey === key;
+      el.classList.toggle('active', active);
+      if (active) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
+    });
+  }
+
+  function goToAdminNav(button) {
+    if (state.role !== 'Admin') return;
+    // Reuse the Admin Portal's own handlers (view switch, tab switch, lazy report loading)
+    // instead of duplicating them: open the portal, pick the tab, then the sub-view if any.
+    if (state.view !== 'admin') $('view-admin').click();
+    const tab = document.querySelector(`[data-admin-tab="${button.dataset.navTab}"]`);
+    if (tab && state.adminTab !== button.dataset.navTab) tab.click();
+    if (button.dataset.navThen) document.querySelector(button.dataset.navThen)?.click();
+    syncAdminNav();
+  }
+
   function adminMessage(message, isError = false) {
     const target = $('admin-feedback');
     target.textContent = message || '';
@@ -377,6 +417,7 @@
 
   function renderAdmin() {
     if (!$('products-body')) return;
+    syncAdminNav();
     $('products-body').innerHTML = state.products.length
       ? state.products.map((product) => `<tr>
           <td><div class="product-cell"><span class="product-index">${String(product.id).padStart(2, '0')}</span><span>${escapeHtml(product.name)}</span></div></td>
@@ -3952,6 +3993,7 @@
     $('view-settlement').addEventListener('click', goToSettlementView);
     $('nav-dashboard').addEventListener('click', goToDsrView);
     $('nav-reports').addEventListener('click', goToSettlementView);
+    document.querySelectorAll('[data-nav-tab]').forEach((button) => button.addEventListener('click', () => goToAdminNav(button)));
     $('view-admin').addEventListener('click', () => {
       if (state.role !== 'Admin') return;
       state.view = 'admin';
