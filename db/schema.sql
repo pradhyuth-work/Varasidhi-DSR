@@ -275,3 +275,27 @@ SELECT t.id, v.rate, '2026-09-01'
     ('FRUIT',   10.0)
   ) AS v(name, rate) ON v.name = t.name
 WHERE NOT EXISTS (SELECT 1 FROM empty_pack_rates);
+
+-- ---------------------------------------------------------------------------
+-- Row Level Security: Supabase exposes every `public` table over its REST/
+-- GraphQL Data API by default, regardless of whether the app uses it. This
+-- app only ever connects as the `postgres` role via DATABASE_URL/DIRECT_URL
+-- (see database.js), which owns these tables and so bypasses RLS entirely —
+-- enabling it here has no effect on the app itself. It only removes the
+-- anon/authenticated Data API access that Supabase's security advisor flags
+-- (`rls_disabled_in_public`) on every table with no RLS. No policies are
+-- added because nothing other than the owner role should ever touch these.
+-- ---------------------------------------------------------------------------
+ALTER TABLE profiles            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE products            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dsr_sessions        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dsr_items           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE purchases           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_returns       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_adjustments   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dispatches          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE balance_adjustments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE empty_pack_types    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE empty_pack_rates    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE empty_pack_items    ENABLE ROW LEVEL SECURITY;
