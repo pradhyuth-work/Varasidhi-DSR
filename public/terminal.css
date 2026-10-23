@@ -198,3 +198,46 @@ body::after { opacity: .3; }
 .combobox-option { background: transparent !important; } .combobox-option.active, .combobox-option:hover { background: rgba(70,201,149,.12) !important; color: #6ed9b0 !important; }
 .pr-day-row td, .pr-day-label { background: #141d17 !important; }
 .pr-day-row td { border-color: #23312a !important; }
+
+/* ---- Login screen: living background (colours unchanged, motion only) ---- */
+.login-screen { overflow: hidden; isolation: isolate; }
+.login-card { position: relative; z-index: 2; }
+/* drifting glow orbs */
+.login-screen::before {
+  content: ""; position: absolute; inset: -25%; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(38% 30% at 22% 28%, rgba(110,217,176,.38), transparent 70%),
+    radial-gradient(34% 28% at 78% 18%, rgba(70,201,149,.32), transparent 70%),
+    radial-gradient(40% 32% at 62% 62%, rgba(70,201,149,.16), transparent 72%),
+    radial-gradient(30% 26% at 12% 74%, rgba(110,217,176,.14), transparent 72%);
+  filter: blur(18px);
+  animation: loginDrift 22s ease-in-out infinite alternate;
+  will-change: transform;
+}
+/* faint perspective grid sliding upward, fading out toward the card */
+.login-screen::after {
+  content: ""; position: absolute; left: -10%; right: -10%; top: 0; height: 62%; z-index: 1; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(110,217,176,.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(110,217,176,.10) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 92%);
+          mask-image: linear-gradient(to bottom, #000 0%, transparent 92%);
+  animation: loginGrid 7s linear infinite;
+  will-change: background-position;
+}
+@keyframes loginDrift {
+  0%   { transform: translate3d(-4%, -2%, 0) scale(1); }
+  50%  { transform: translate3d(5%, 4%, 0) scale(1.12); }
+  100% { transform: translate3d(-2%, 7%, 0) scale(1.04); }
+}
+@keyframes loginGrid { to { background-position: 0 44px, 44px 0; } }
+/* soft breathing glow behind the card */
+.login-card { animation: loginCardGlow 5s ease-in-out infinite alternate; }
+@keyframes loginCardGlow {
+  from { box-shadow: 0 0 0 1px rgba(70,201,149,.06), 0 18px 50px rgba(0,0,0,.55), 0 0 30px rgba(70,201,149,.05); }
+  to   { box-shadow: 0 0 0 1px rgba(70,201,149,.16), 0 18px 50px rgba(0,0,0,.55), 0 0 60px rgba(70,201,149,.18); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-screen::before, .login-screen::after, .login-card { animation: none; }
+}
