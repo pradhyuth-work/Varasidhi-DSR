@@ -3,7 +3,7 @@
 // (HTML, /api/*, auth, cross-origin Supabase calls, everything) passes
 // straight through to the network untouched. No offline fallback, no
 // stale responses, ever.
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `varasidhi-dsr-${CACHE_VERSION}`;
 
 self.addEventListener("install", () => {

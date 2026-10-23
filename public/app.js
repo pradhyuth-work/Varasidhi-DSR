@@ -55,6 +55,7 @@
     emptyPackSchemeData: null,
     emptyPackSchemeLoading: false,
   };
+  window.__dsrState = state;
 
   const $ = (id) => document.getElementById(id);
   const roundMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
