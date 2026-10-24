@@ -3530,7 +3530,7 @@
     event.preventDefault();
     const password = $('login-password').value;
     const btn = $('login-submit');
-    btn.disabled = true; btn.textContent = 'Signing in…';
+    btn.disabled = true; const lb = btn.querySelector('.lb-text'); if (lb) lb.textContent = 'Signing in…';
     setHidden('login-error', true);
     try {
       const res = await request('/api/login', { method: 'POST', body: JSON.stringify({ password }) });
@@ -3542,7 +3542,7 @@
       $('login-password').value = '';
       $('login-password').focus();
     } finally {
-      btn.disabled = false; btn.textContent = 'Sign in';
+      btn.disabled = false; if (lb) lb.textContent = 'Sign in';
     }
   }
   async function doLogout() {
