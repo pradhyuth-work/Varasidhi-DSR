@@ -2072,9 +2072,9 @@
 
   function updateTotals(itemById = new Map(state.items.map((item) => [Number(item.product_id), item]))) {
     let sales = 0;
-    // Load-in table footer: number of product rows (not units).
+    // Load-in table footer: number of product rows with an additional load entered (not units).
     const loadCountCell = $('load-total-count');
-    if (loadCountCell) loadCountCell.textContent = integer(state.items.length);
+    if (loadCountCell) loadCountCell.textContent = integer(state.items.filter((item) => Number(state.loadDrafts[item.product_id] || 0) > 0).length);
     state.items.forEach((item) => {
       const routeStock = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0) + Number(state.loadDrafts[item.product_id] || 0);
       const closing = Number(state.closingDrafts[item.product_id] ?? item.closing_stock ?? 0);
