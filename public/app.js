@@ -2072,6 +2072,20 @@
 
   function updateTotals(itemById = new Map(state.items.map((item) => [Number(item.product_id), item]))) {
     let sales = 0;
+    // Load-in table footer: total item counts across all products.
+    const loadTotals = { warehouse: 0, opening: 0, previous: 0, additional: 0, dispatched: 0 };
+    state.items.forEach((item) => {
+      const draftQty = Number(state.loadDrafts[item.product_id] || 0);
+      loadTotals.warehouse += Number(item.warehouse_stock || 0);
+      loadTotals.opening += Number(item.opening_stock || 0);
+      loadTotals.previous += Number(item.loaded_stock || 0);
+      loadTotals.additional += draftQty;
+      loadTotals.dispatched += Number(item.opening_stock || 0) + Number(item.loaded_stock || 0) + draftQty;
+    });
+    Object.entries(loadTotals).forEach(([key, value]) => {
+      const cell = $(`load-total-${key}`);
+      if (cell) cell.textContent = integer(value);
+    });
     state.items.forEach((item) => {
       const routeStock = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0) + Number(state.loadDrafts[item.product_id] || 0);
       const closing = Number(state.closingDrafts[item.product_id] ?? item.closing_stock ?? 0);
