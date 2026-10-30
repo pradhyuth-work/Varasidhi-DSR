@@ -120,7 +120,7 @@
     openModal(
       '<div class="section-kicker"><span class="section-number">◎</span><span>BUYER LOGIN</span></div>' +
       '<h2>' + (l ? 'Edit login' : 'Set up login') + '</h2>' +
-      '<p class="modal-intro"><strong>' + esc(b.name) + '</strong> · sees only their own units, view only</p>' +
+      '<p class="modal-intro"><strong>' + esc(b.name) + '</strong> · sees only their own units and settlement report, view only</p>' +
       '<form id="pa-form" autocomplete="off">' +
       '<label class="form-field"><span>Username</span><input name="username" maxlength="30" autocapitalize="none" spellcheck="false" required value="' + esc(l ? l.username : '') + '" /></label>' +
       '<label class="form-field"><span>Password' + (l ? ' <em>Leave blank to keep the current password</em>' : '') + '</span><input name="pin" type="text" maxlength="30" autocapitalize="none" spellcheck="false" ' + (l ? '' : 'required ') + 'placeholder="6 to 30 characters" /></label>' +

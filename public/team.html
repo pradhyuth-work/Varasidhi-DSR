@@ -69,6 +69,11 @@
         </div>
         <button id="tp-out" class="tp-btn" type="button">Sign out</button>
       </header>
+      <nav class="tp-switch" id="tp-switch" aria-label="View" hidden>
+        <button type="button" class="on" data-view="perf">Performance</button>
+        <button type="button" data-view="settle">Settlement Report</button>
+      </nav>
+      <div id="tp-view-perf">
       <div class="tp-controls">
         <label for="tp-month">Month</label>
         <select id="tp-month"></select>
@@ -85,6 +90,14 @@
         <h2>By buyer</h2>
         <div id="tp-buyers"></div>
       </section>
+      </div>
+      <div id="tp-view-settle" hidden>
+        <div class="tp-controls tp-dates">
+          <label for="ts-from">From</label><input type="date" id="ts-from" />
+          <label for="ts-to">To</label><input type="date" id="ts-to" />
+        </div>
+        <div id="ts-list"></div>
+      </div>
       <p id="tp-msg" class="tp-msg" role="status"></p>
       <p class="tp-foot">Counts completed route days only. View only.</p>
     </main>

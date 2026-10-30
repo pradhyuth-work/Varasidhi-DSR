@@ -353,8 +353,85 @@ teamRouter.get("/performance", requireAccount, async (req, res) => {
   }
 });
 
+// Settlement report: BUYER logins only, and only that buyer's own settled days.
+// Team leads are refused. Whose data this is comes from the account row, never
+// from the request. View only; the read-only transaction cannot write.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const validDate = (d) => DATE_RE.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`))
+  && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
+const money = (v) => Math.round(Number(v || 0) * 100) / 100;
+
+teamRouter.get("/settlement", requireAccount, async (req, res) => {
+  try {
+    if (req.acct.kind !== "buyer" || !req.acct.profile_id) {
+      return fail(res, 403, "Settlement reports are not available for this login.");
+    }
+    const todayStr = IST_DATE.format(new Date());
+    let from = validDate(String(req.query?.from || "")) ? String(req.query.from) : `${todayStr.slice(0, 7)}-01`;
+    let to = validDate(String(req.query?.to || "")) ? String(req.query.to) : todayStr;
+    if (from < "2020-01-01") from = "2020-01-01";
+    if (from > to) from = to;
+    // At most about a year at a time.
+    const minFrom = new Date(Date.parse(`${to}T00:00:00Z`) - 366 * 86400000).toISOString().slice(0, 10);
+    if (from < minFrom) from = minFrom;
+
+    const out = await readOnly(async (c) => {
+      const sessions = (await c.query(
+        `SELECT s.id, s.date::text AS date, s.prev_balance, s.total_sales, s.total_payments, s.updated_balance
+           FROM dsr_sessions s
+          WHERE s.status = 'SETTLED' AND s.buyer_id = $1 AND s.date >= $2 AND s.date <= $3
+          ORDER BY s.date DESC, s.id DESC
+          LIMIT 200`,
+        [req.acct.profile_id, from, to],
+      )).rows;
+      if (!sessions.length) return { sessions: [], items: [], payments: [] };
+      const ids = sessions.map((x) => x.id);
+      const items = (await c.query(
+        `SELECT di.dsr_id, p.name AS product_name,
+                (di.opening_stock + di.loaded_stock) AS dispatch,
+                di.closing_stock, di.qty_sold, di.unit_price, di.line_total
+           FROM dsr_items di JOIN products p ON p.id = di.product_id
+          WHERE di.dsr_id = ANY($1::int[]) ORDER BY di.dsr_id, p.id`,
+        [ids],
+      )).rows;
+      const payments = (await c.query(
+        `SELECT dsr_id, method, label_info, amount FROM payments
+          WHERE dsr_id = ANY($1::int[]) ORDER BY paid_at ASC`,
+        [ids],
+      )).rows;
+      return { sessions, items, payments };
+    });
+
+    const itemsBy = new Map(), paysBy = new Map();
+    for (const i of out.items) {
+      if (!itemsBy.has(i.dsr_id)) itemsBy.set(i.dsr_id, []);
+      itemsBy.get(i.dsr_id).push({
+        product_name: i.product_name, dispatch: Number(i.dispatch), closing_stock: Number(i.closing_stock),
+        qty_sold: Number(i.qty_sold), unit_price: money(i.unit_price), line_total: money(i.line_total),
+      });
+    }
+    for (const p of out.payments) {
+      if (!paysBy.has(p.dsr_id)) paysBy.set(p.dsr_id, []);
+      paysBy.get(p.dsr_id).push({ method: p.method, label_info: p.label_info || "", amount: money(p.amount) });
+    }
+    res.json({
+      name: req.acct.display_name,
+      from, to,
+      sessions: out.sessions.map((x) => ({
+        date: x.date,
+        prev_balance: money(x.prev_balance), total_sales: money(x.total_sales),
+        total_payments: money(x.total_payments), updated_balance: money(x.updated_balance),
+        items: itemsBy.get(x.id) || [], payments: paysBy.get(x.id) || [],
+      })),
+    });
+  } catch (error) {
+    console.error("Team settlement failed", error.message);
+    fail(res, 500, "Unable to load settlements right now.");
+  }
+});
+
 // Anything else under /api/team: answer here so it never falls through to the staff routes.
-teamRouter.all(["/me", "/performance", "/login", "/logout"], (_req, res) => fail(res, 405, "Not allowed."));
+teamRouter.all(["/me", "/performance", "/settlement", "/login", "/logout"], (_req, res) => fail(res, 405, "Not allowed."));
 teamRouter.use((_req, res) => fail(res, 404, "Not found."));
 
 // ===========================================================================
