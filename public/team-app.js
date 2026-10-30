@@ -110,7 +110,7 @@
       .then(function () { btn.disabled = false; lb.textContent = 'Sign in'; });
   });
   $('login-password').addEventListener('input', function () {
-    this.value = this.value.replace(/\D/g, '');
+    /* any characters allowed */
   });
   $('tp-month').addEventListener('change', function () { load(this.value); });
   $('tp-out').addEventListener('click', function () {
