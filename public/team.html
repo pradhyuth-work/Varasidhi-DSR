@@ -45,13 +45,13 @@
             </div>
           </div>
           <div class="login-field">
-            <label class="login-label" for="login-password">PIN</label>
+            <label class="login-label" for="login-password">Password</label>
             <div class="login-input-wrap">
-              <input id="login-password" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="current-password" maxlength="8" required />
+              <input id="login-password" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false" maxlength="30" required />
               <div class="pin-bars" id="login-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
             </div>
           </div>
-          <div id="login-error" class="login-error" role="alert" hidden>Incorrect username or PIN.</div>
+          <div id="login-error" class="login-error" role="alert" hidden>Incorrect username or password.</div>
           <button id="login-submit" class="login-button" type="submit">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="lb-text">Sign in</span>

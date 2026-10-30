@@ -82,7 +82,7 @@
       '<p class="pa-msg" role="status">' + esc(msg) + '</p></div>' +
       '<div class="admin-card notice-card"><span class="notice-icon">◎</span><div><b>Where they sign in</b>' +
       '<p class="pa-addr">' + esc(location.origin) + '/team</p>' +
-      '<p>Buyers and team leads both use this page, with their own username and PIN. Buyer logins are set up in Profile / buyer manager (' + buyerLogins + ' so far).</p></div></div></div>' +
+      '<p>Buyers and team leads both use this page, with their own username and password. Buyer logins are set up in Profile / buyer manager (' + buyerLogins + ' so far).</p></div></div></div>' +
       '<div class="admin-section-heading"><div><div class="section-kicker"><span class="section-number">02</span><span>TEAMS</span></div><h2>Team leads and their buyers</h2></div></div>' +
       '<div class="table-shell"><table class="route-table admin-table"><thead><tr><th>TEAM LEAD</th><th>USERNAME</th><th>BUYERS</th><th>STATUS</th><th></th></tr></thead><tbody>' +
       (data ? (rows || '<tr><td colspan="5">No team leads yet.</td></tr>') : '<tr><td colspan="5">' + (failed ? 'Team access is not available right now.' : 'Loading…') + '</td></tr>') +
@@ -111,7 +111,7 @@
   function busy(on) { var b = $('pa-save'); if (b) { b.disabled = on; b.textContent = on ? 'Saving…' : 'Save'; } }
   function done(text) { msg = text || ''; closeModal(); return load(); }
 
-  var FIELD_HELP = 'Username: 3 to 30 letters, numbers, dot, dash or underscore. PIN: 6 to 8 digits. Tell the person their PIN, it cannot be shown again.';
+  var FIELD_HELP = 'Username: 3 to 30 letters, numbers, dot, dash or underscore. Password: 6 to 30 characters, no spaces, capitals do not matter. Tell the person their password, it cannot be shown again.';
 
   function buyerModal(pid) {
     var b = data.buyers.filter(function (x) { return x.profile_id === pid; })[0];
@@ -123,7 +123,7 @@
       '<p class="modal-intro"><strong>' + esc(b.name) + '</strong> · sees only their own units, view only</p>' +
       '<form id="pa-form" autocomplete="off">' +
       '<label class="form-field"><span>Username</span><input name="username" maxlength="30" autocapitalize="none" spellcheck="false" required value="' + esc(l ? l.username : '') + '" /></label>' +
-      '<label class="form-field"><span>PIN' + (l ? ' <em>Leave blank to keep the current PIN</em>' : '') + '</span><input name="pin" inputmode="numeric" maxlength="8" pattern="[0-9]*" ' + (l ? '' : 'required ') + 'placeholder="6 to 8 digits" /></label>' +
+      '<label class="form-field"><span>Password' + (l ? ' <em>Leave blank to keep the current password</em>' : '') + '</span><input name="pin" type="text" maxlength="30" autocapitalize="none" spellcheck="false" ' + (l ? '' : 'required ') + 'placeholder="6 to 30 characters" /></label>' +
       '<p class="card-copy">' + FIELD_HELP + '</p>' +
       '<p class="admin-auth-error" id="pa-error" hidden></p>' +
       '<div class="modal-actions">' + (l ? '<button class="button button-quiet pa-actions-left" type="button" id="pa-remove">Remove login</button>' : '') +
@@ -160,7 +160,7 @@
       '<form id="pa-form" autocomplete="off">' +
       '<label class="form-field"><span>Name</span><input name="name" maxlength="120" required value="' + esc(t ? t.name : '') + '" /></label>' +
       '<label class="form-field"><span>Username</span><input name="username" maxlength="30" autocapitalize="none" spellcheck="false" required value="' + esc(t ? t.username : '') + '" /></label>' +
-      '<label class="form-field"><span>PIN' + (t ? ' <em>Leave blank to keep the current PIN</em>' : '') + '</span><input name="pin" inputmode="numeric" maxlength="8" pattern="[0-9]*" ' + (t ? '' : 'required ') + 'placeholder="6 to 8 digits" /></label>' +
+      '<label class="form-field"><span>Password' + (t ? ' <em>Leave blank to keep the current password</em>' : '') + '</span><input name="pin" type="text" maxlength="30" autocapitalize="none" spellcheck="false" ' + (t ? '' : 'required ') + 'placeholder="6 to 30 characters" /></label>' +
       '<div class="form-field"><span>Buyers in this team</span><div class="pa-checks">' + (checks || '<span class="stock-quiet">No buyers yet.</span>') + '</div></div>' +
       '<p class="card-copy">' + FIELD_HELP + '</p>' +
       '<p class="admin-auth-error" id="pa-error" hidden></p>' +

@@ -22,7 +22,8 @@ const COOKIE_PATH = "/api/team";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const MAX_FAILS = 5;
 const LOCK_MINUTES = 15;
-const PIN_RE = /^\d{6,8}$/;
+// Passwords: 6-30 visible characters, no spaces, not case-sensitive (stored and checked in lower case).
+const PIN_RE = /^[\x21-\x7e]{6,30}$/;
 const USERNAME_RE = /^[a-z0-9._-]{3,30}$/;
 const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
 const isProd = process.env.NODE_ENV === "production";
@@ -210,13 +211,13 @@ teamRouter.post("/login", async (req, res) => {
   const key = secret();
   if (!key) return fail(res, 503, "Team sign-in is not available right now.");
   const username = String(req.body?.username || "").trim().toLowerCase();
-  const pin = String(req.body?.pin || "");
+  const pin = String(req.body?.pin || "").toLowerCase();
   const ip = clientIp(req);
   if (ipBlocked(ip)) return fail(res, 429, "Too many attempts. Try again in a few minutes.");
   if (!USERNAME_RE.test(username) || !PIN_RE.test(pin)) {
     await burnTime(pin);
     ipFailed(ip);
-    return fail(res, 401, "Incorrect username or PIN.");
+    return fail(res, 401, "Incorrect username or password.");
   }
   try {
     await ready();
@@ -229,7 +230,7 @@ teamRouter.post("/login", async (req, res) => {
     if (!acct) {
       await burnTime(pin);
       ipFailed(ip);
-      return fail(res, 401, "Incorrect username or PIN.");
+      return fail(res, 401, "Incorrect username or password.");
     }
     if (acct.locked) return fail(res, 429, "Too many attempts. Try again in a few minutes.");
     const ok = await checkPin(pin, acct.pin_hash);
@@ -242,7 +243,7 @@ teamRouter.post("/login", async (req, res) => {
         [acct.id],
       );
       ipFailed(ip);
-      return fail(res, 401, "Incorrect username or PIN.");
+      return fail(res, 401, "Incorrect username or password.");
     }
     if (!acct.active) return fail(res, 403, "This login is switched off. Ask the admin.");
     await database.run(
@@ -381,10 +382,10 @@ function checkUsername(raw) {
   return USERNAME_RE.test(u) ? u : null;
 }
 function checkPinForSetup(pin) {
-  const p = String(pin || "");
-  if (!PIN_RE.test(p)) return { error: "Use a PIN of 6 to 8 digits." };
+  const p = String(pin || "").toLowerCase();
+  if (!PIN_RE.test(p)) return { error: "Use a password of 6 to 30 characters, no spaces." };
   const staff = [process.env.ADMIN_PASSWORD || "5252", process.env.USER_PASSWORD || ""];
-  if (staff.includes(p)) return { error: "Choose a PIN that is different from the staff passwords." };
+  if (staff.some((x) => x && x.toLowerCase() === p)) return { error: "Choose a password that is different from the staff passwords." };
   return { pin: p };
 }
 function conflict(error) {
