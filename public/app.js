@@ -437,10 +437,11 @@
           <td class="price"><div class="stock-cell" style="justify-content:flex-end"><span>${currency(profile.current_balance)}</span><button class="button button-quiet compact-button stock-adjust" type="button" data-balance-adjust="${escapeHtml(profile.id)}">Correct</button></div></td>
           <td><input class="admin-text-input pname-input" data-profile-id="${escapeHtml(profile.id)}" type="text" maxlength="120" value="${escapeHtml(profile.name)}" aria-label="New name for ${escapeHtml(profile.name)}" /></td>
           <td><button class="button button-quiet compact-button pname-save" type="button" data-profile-id="${escapeHtml(profile.id)}">Save name</button></td>
+          <td class="portal-login-cell" data-portal-profile="${escapeHtml(profile.id)}"></td>
           <td><button class="button button-quiet compact-button profile-hide" type="button" data-profile-id="${escapeHtml(profile.id)}" data-hidden="${profile.hidden ? 'true' : 'false'}">${profile.hidden ? 'Unhide' : 'Hide'}</button></td>
           <td><button class="delete-profile" type="button" data-delete-profile="${escapeHtml(profile.id)}">Delete</button></td>
         </tr>`).join('')
-      : '<tr><td colspan="7">No buyer profiles found.</td></tr>';
+      : '<tr><td colspan="8">No buyer profiles found.</td></tr>';
     refreshPurchaseProductOptions();
     $('inventory-total-products').textContent = integer(state.products.length);
     const PURCHASE_PAGE_SIZE = 20;

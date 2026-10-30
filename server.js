@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { database, withTransaction } from "./database.js";
+import { teamRouter, portalAdminRouter } from "./team-access.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -15,6 +16,17 @@ const app = express();
 // so overrides must go through its `headers` option instead to actually stick.
 app.get("/manifest.webmanifest", (_req, res) => {
   res.sendFile(path.join(publicDir, "manifest.webmanifest"), {
+    headers: { "Content-Type": "application/manifest+json" },
+  });
+});
+// Team page (buyers and team leads). Its own address inside this same app; the
+// staff screens at "/" are untouched. Registered before express.static so the
+// trailing-slash form also lands here instead of the staff app.
+app.get(["/team", "/team/"], (_req, res) => {
+  res.sendFile(path.join(publicDir, "team.html"));
+});
+app.get("/team.webmanifest", (_req, res) => {
+  res.sendFile(path.join(publicDir, "team.webmanifest"), {
     headers: { "Content-Type": "application/manifest+json" },
   });
 });
@@ -216,6 +228,10 @@ async function getOrCreateActiveSession(buyerId, actor = null) {
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 
+// Team logins (read-only, units only) have their own session and answer for
+// themselves, so they are mounted BEFORE the staff gate and never reach it.
+app.use("/api/team", teamRouter);
+
 // Gate every /api route behind a valid session, except health and login.
 app.use("/api", (req, res, next) => {
   const p = req.path;
@@ -227,6 +243,9 @@ app.use("/api", (req, res, next) => {
   req.userRole = role;
   next();
 });
+
+// Admin-only management of team logins (checked inside the router).
+app.use("/api/portal-accounts", portalAdminRouter);
 
 // Sign in: the submitted password decides the role (admin vs user).
 app.post("/api/login", (req, res) => {

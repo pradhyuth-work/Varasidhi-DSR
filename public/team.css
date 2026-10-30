@@ -1,0 +1,33 @@
+/* Team page: DSR terminal colours and fonts, same tokens as the staff app. */
+.tp { max-width: 34rem; margin: 0 auto; padding: 18px max(16px, env(safe-area-inset-right, 0px)) 40px max(16px, env(safe-area-inset-left, 0px)); position: relative; z-index: 2; }
+.tp[hidden] { display: none; }
+.tp-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 16px; border-bottom: 1px solid var(--line); }
+.tp-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tp-brand img { border-radius: 9px; flex: none; }
+.tp-brand div { display: flex; flex-direction: column; min-width: 0; }
+.tp-brand b { font: italic 900 20px/1.05 var(--display); text-transform: uppercase; color: #eef5f0; overflow-wrap: anywhere; }
+.tp-brand span { font: 600 9px var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--ink-muted); margin-top: 3px; }
+.tp-btn { font: 600 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink); background: transparent; border: 1px solid var(--line-strong); border-radius: 3px; padding: 9px 12px; min-height: 40px; cursor: pointer; }
+.tp-btn:hover { border-color: var(--teal); color: var(--teal-light); }
+.tp-controls { display: flex; align-items: center; gap: 10px; padding: 16px 0 4px; }
+.tp-controls label { font: 600 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-muted); }
+.tp-controls select { flex: 1; max-width: 14rem; background: var(--surface-sunken); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 3px; padding: 10px 12px; font: 14px var(--mono); min-height: 42px; }
+.tp-controls select:focus-visible, .tp-btn:focus-visible, .tp-row:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.tp-total { margin: 14px 0; padding: 16px 18px; background: var(--paper-2); border: 1px solid var(--line-strong); border-radius: 4px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; box-shadow: 0 0 31px rgba(70,201,149,.10); }
+.tp-total span { font: 600 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-muted); }
+.tp-total b { font: 700 34px/1 var(--mono); color: var(--teal); font-variant-numeric: tabular-nums; }
+.tp-card { background: var(--paper-2); border: 1px solid var(--line); border-radius: 4px; padding: 16px 18px; margin-bottom: 14px; }
+.tp-card h2 { margin: 0 0 8px; font: 600 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-muted); }
+.tp-line { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.tp-line:first-child { border-top: 0; }
+.tp-line b { font: 600 14px var(--mono); font-variant-numeric: tabular-nums; }
+.tp-row { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 12px 0; color: inherit; font: inherit; cursor: pointer; }
+.tp-row:first-child { border-top: 0; }
+.tp-row .tp-line { border: 0; padding: 0; }
+.tp-bar { height: 4px; border-radius: 3px; background: var(--line); margin-top: 8px; overflow: hidden; }
+.tp-bar i { display: block; height: 100%; background: var(--teal); border-radius: 3px; }
+.tp-sub { padding: 8px 0 0 12px; }
+.tp-sub .tp-line { padding: 4px 0; font-size: 13px; color: var(--ink-soft); }
+.tp-empty { color: var(--ink-muted); padding: 6px 0; font-size: 13px; }
+.tp-msg { min-height: 18px; margin: 6px 0 0; font-size: 13px; color: var(--red); }
+.tp-foot { margin: 8px 0 0; font: 11px var(--mono); color: var(--ink-muted); text-align: center; }

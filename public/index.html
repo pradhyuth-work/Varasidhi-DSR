@@ -380,6 +380,7 @@
               <button class="admin-tab" type="button" data-admin-tab="reports">Sales reports</button>
               <button class="admin-tab" type="button" data-admin-tab="payments-report">Payments &amp; balances</button>
               <button class="admin-tab" type="button" data-admin-tab="empty-pack-scheme">Empty pack scheme</button>
+              <button class="admin-tab" type="button" data-admin-tab="team-access">Team access</button>
               <button class="admin-tab" type="button" data-admin-tab="backup">Backup</button>
             </div>
 
@@ -518,7 +519,7 @@
                 <div class="admin-card notice-card"><span class="notice-icon">◎</span><div><b>Route history is protected</b><p>Profiles with DSR history cannot be deleted, preserving the integrity of settled reports.</p></div></div>
               </div>
               <div class="admin-section-heading"><div><div class="section-kicker"><span class="section-number">02</span><span>BUYER PROFILES</span></div><h2>Active ledger accounts</h2></div></div>
-              <div class="table-shell"><table class="route-table admin-table"><thead><tr><th>BUYER</th><th>PROFILE ID</th><th>CURRENT LEDGER BALANCE</th><th>RENAME</th><th></th><th>VISIBILITY</th><th></th></tr></thead><tbody id="profiles-body"></tbody></table></div>
+              <div class="table-shell"><table class="route-table admin-table"><thead><tr><th>BUYER</th><th>PROFILE ID</th><th>CURRENT LEDGER BALANCE</th><th>RENAME</th><th></th><th>LOGIN</th><th>VISIBILITY</th><th></th></tr></thead><tbody id="profiles-body"></tbody></table></div>
 
               <div class="admin-section-heading" style="margin-top:26px"><div><div class="section-kicker"><span class="section-number">03</span><span>LEDGER CORRECTIONS</span></div><h2>Manual balance adjustment history</h2><p>Every manual ledger correction, with the reason it was made.</p></div></div>
               <div class="table-shell"><table class="route-table admin-table"><thead><tr><th>DATE</th><th>BUYER</th><th>TYPE</th><th>OLD → NEW</th><th>CHANGE</th><th>REASON</th></tr></thead><tbody id="balance-adjustments-body"></tbody></table></div>
@@ -879,6 +880,8 @@
                 <button class="button button-quiet compact-button" type="submit" id="eps-add-type-btn">+ Add a new product type</button>
               </form>
             </section>
+
+            <section class="admin-panel" data-admin-panel="team-access" id="team-access-panel" hidden></section>
 
             <section class="admin-panel" data-admin-panel="backup" hidden>
               <div class="admin-grid">
@@ -1289,5 +1292,6 @@
     <script src="/app.js" defer></script>
     <script src="/login-fx.js" defer></script>
     <script src="/enhance.js" defer></script>
+    <script src="/portal-admin.js" defer></script>
   </body>
 </html>
