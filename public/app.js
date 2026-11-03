@@ -67,6 +67,7 @@
   const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
   const todayIso = () => IST_DATE_FORMAT.format(new Date());
   const firstOfMonth = () => `${todayIso().slice(0, 7)}-01`;
+  const thisMonthIso = () => todayIso().slice(0, 7);
   const currency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const integer = (value) => Number(value || 0).toLocaleString('en-IN');
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
@@ -2256,11 +2257,18 @@
     return `${d}-${m}-${y.slice(2)}`;
   };
 
+  const formatMmYy = (iso) => {
+    if (!iso) return '';
+    const [y, m] = iso.split('-');
+    return `${m}-${y.slice(2)}`;
+  };
+
   async function submitPayment(event) {
     event.preventDefault();
     if (!state.session || state.session.status === 'SETTLED') return;
     const method = $('payment-method').value;
     const isCheque = method === 'CHEQUE';
+    const isVoucher = method === 'VOUCHERS';
     // Only treat this as the itemized flow when the entry block is actually
     // showing — if the rates fetch failed, togglePaymentMethodFields() falls
     // back to a plain typed amount for EMPTY_PACKETS too (see there).
@@ -2268,6 +2276,7 @@
     const isUpi = method === 'UPI';
     let amount = Number($('payment-amount').value);
     let chequeDetails = '';
+    let voucherDetails = '';
     let emptyPacksPayload = null;
     let upiAccountName = '';
     if (isUpi) {
@@ -2286,6 +2295,18 @@
       if (cheques.some((c) => !(c.amount > 0))) return toast('Enter an amount for every cheque.', 'error');
       amount = roundMoney(cheques.reduce((sum, c) => sum + c.amount, 0));
       chequeDetails = cheques.map((c) => `#${c.serial}${c.date ? ` (${formatDdMmYy(c.date)})` : ''} ${currency(c.amount)}`).join('; ');
+    } else if (isVoucher) {
+      const rows = Array.from(document.querySelectorAll('#payment-vouchers-list .voucher-row'));
+      const vouchers = rows.map((row) => ({
+        serial: row.querySelector('.voucher-serial').value.trim(),
+        date: row.querySelector('.voucher-date').value,
+        amount: Number(row.querySelector('.voucher-amount').value || 0),
+      })).filter((v) => v.serial || v.date || v.amount > 0);
+      if (!vouchers.length) return toast('Add at least one voucher.', 'error');
+      if (vouchers.some((v) => !v.serial)) return toast('Enter a serial number for every voucher.', 'error');
+      if (vouchers.some((v) => !(v.amount > 0))) return toast('Enter an amount for every voucher.', 'error');
+      amount = roundMoney(vouchers.reduce((sum, v) => sum + v.amount, 0));
+      voucherDetails = vouchers.map((v) => `#${v.serial}${v.date ? ` (${formatMmYy(v.date)})` : ''} ${currency(v.amount)}`).join('; ');
     } else if (isEmptyPackets) {
       const rows = Array.from(document.querySelectorAll('#payment-empty-packs-list .empty-pack-qty-input'));
       const lines = rows
@@ -2301,6 +2322,7 @@
     const labelParts = [formatDdMmYy(dateIso)];
     if (refText) labelParts.push(refText);
     if (chequeDetails) labelParts.push(chequeDetails);
+    if (voucherDetails) labelParts.push(voucherDetails);
     if (upiAccountName) labelParts.push(`A/C: ${upiAccountName}`);
     setBusy(true);
     try {
@@ -3396,6 +3418,7 @@
     $('payment-form').reset();
     $('payment-date').value = todayIso();
     $('payment-cheques-list').innerHTML = '';
+    $('payment-vouchers-list').innerHTML = '';
     $('payment-empty-packs-list').innerHTML = '';
     // Refetch rates fresh each time the modal opens, rather than carrying a
     // stale cache (or a stale failure) across separate payment entries.
@@ -3431,6 +3454,32 @@
     const total = roundMoney(amounts.reduce((sum, value) => sum + value, 0));
     $('payment-cheques-total').textContent = currency(total);
     if ($('payment-method').value === 'CHEQUE') $('payment-amount').value = total > 0 ? total.toFixed(2) : '';
+  }
+
+  function addVoucherRow() {
+    const row = document.createElement('div');
+    row.className = 'voucher-row';
+    row.innerHTML = `
+      <label class="voucher-field"><span>Serial no.</span><input type="text" class="voucher-serial" maxlength="40" placeholder="e.g. 004512" /></label>
+      <label class="voucher-field"><span>Month</span><input type="month" class="voucher-date" /></label>
+      <label class="voucher-field"><span>Amount</span><input type="number" class="voucher-amount" min="0.01" step="0.01" placeholder="0.00" /></label>
+      <button type="button" class="voucher-row-delete" aria-label="Remove voucher"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14m-9 4v6m4-6v6M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg></button>`;
+    row.querySelector('.voucher-date').value = thisMonthIso();
+    $('payment-vouchers-list').appendChild(row);
+    updateVoucherTotal();
+  }
+
+  function removeVoucherRow(row) {
+    row.remove();
+    if (!$('payment-vouchers-list').children.length) addVoucherRow();
+    updateVoucherTotal();
+  }
+
+  function updateVoucherTotal() {
+    const amounts = Array.from(document.querySelectorAll('#payment-vouchers-list .voucher-amount')).map((input) => Number(input.value || 0));
+    const total = roundMoney(amounts.reduce((sum, value) => sum + value, 0));
+    $('payment-vouchers-total').textContent = currency(total);
+    if ($('payment-method').value === 'VOUCHERS') $('payment-amount').value = total > 0 ? total.toFixed(2) : '';
   }
 
   // Empty packets collected: fetch today's per-product rates, show a packets
@@ -3486,19 +3535,30 @@
   async function togglePaymentMethodFields() {
     const method = $('payment-method').value;
     const isCheque = method === 'CHEQUE';
+    const isVoucher = method === 'VOUCHERS';
     const isEmptyPackets = method === 'EMPTY_PACKETS';
     const isUpi = method === 'UPI';
     const wasCheque = !$('payment-cheques-field').hidden;
+    const wasVoucher = !$('payment-vouchers-field').hidden;
     const wasEmptyPackets = !$('payment-empty-packs-field').hidden;
     setHidden('payment-upi-name-field', !isUpi);
     if (!isUpi) $('payment-upi-name').value = '';
     setHidden('payment-cheques-field', !isCheque);
+    setHidden('payment-vouchers-field', !isVoucher);
     if (isCheque) {
       $('payment-amount').readOnly = true;
       setHidden('payment-empty-packs-field', true);
       $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', true);
       if (!$('payment-cheques-list').children.length) addChequeRow();
       updateChequeTotal();
+      return;
+    }
+    if (isVoucher) {
+      $('payment-amount').readOnly = true;
+      setHidden('payment-empty-packs-field', true);
+      $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', true);
+      if (!$('payment-vouchers-list').children.length) addVoucherRow();
+      updateVoucherTotal();
       return;
     }
     if (isEmptyPackets) {
@@ -3522,7 +3582,7 @@
     setHidden('payment-empty-packs-field', true);
     $('payment-amount').readOnly = false;
     $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', false);
-    if (wasCheque || wasEmptyPackets) $('payment-amount').value = ''; // clear the derived total, not a user-typed figure
+    if (wasCheque || wasVoucher || wasEmptyPackets) $('payment-amount').value = ''; // clear the derived total, not a user-typed figure
   }
 
   // ---- Auth / login gate --------------------------------------------------
@@ -4165,6 +4225,7 @@
     $('payment-form').addEventListener('submit', submitPayment);
     $('payment-method').addEventListener('change', togglePaymentMethodFields);
     $('add-cheque-row').addEventListener('click', addChequeRow);
+    $('add-voucher-row').addEventListener('click', addVoucherRow);
     $('close-admin-auth').addEventListener('click', closeAdminAuth);
     $('cancel-admin-auth').addEventListener('click', closeAdminAuth);
     $('admin-auth-modal').addEventListener('click', (event) => { if (event.target === $('admin-auth-modal')) closeAdminAuth(); });
@@ -4179,6 +4240,7 @@
         updateTotals();
       }
       if (event.target.matches('.cheque-amount')) updateChequeTotal();
+      if (event.target.matches('.voucher-amount')) updateVoucherTotal();
       if (event.target.matches('.empty-pack-qty-input')) updateEmptyPackTotal();
     });
     // Number inputs change value on mouse-wheel scroll while focused; blur on scroll so
@@ -4193,6 +4255,8 @@
       if (deleteButton) deletePayment(deleteButton.dataset.deletePayment);
       const chequeDeleteButton = event.target.closest('.cheque-row-delete');
       if (chequeDeleteButton) removeChequeRow(chequeDeleteButton.closest('.cheque-row'));
+      const voucherDeleteButton = event.target.closest('.voucher-row-delete');
+      if (voucherDeleteButton) removeVoucherRow(voucherDeleteButton.closest('.voucher-row'));
       const rateButton = event.target.closest('[data-product-id].rate-save');
       if (rateButton) saveRate(rateButton.dataset.productId);
       const stockButton = event.target.closest('[data-stock-adjust]');
