@@ -86,7 +86,7 @@
   }, true);
 
   /* ---------------- 4. charts ---------------- */
-  const METHOD = { CASH: 'Cash', HDFC_SCANNER: 'HDFC scanner', BANK_TRANSFER_HDFC: 'Bank transfer · HDFC', BANK_TRANSFER_UNION: 'Bank transfer · Union', BANK_TRANSFER: 'Bank transfer', UPI: 'UPI', CHEQUE: 'Cheque', EMPTY_PACKETS: 'Empty packets', VOUCHERS: 'Vouchers' };
+  const METHOD = { CASH: 'Cash', HDFC_SCANNER: 'HDFC scanner', BANK_TRANSFER_HDFC: 'Bank transfer · HDFC', BANK_TRANSFER_UNION: 'Bank transfer · Union', BANK_TRANSFER: 'Bank transfer', UPI: 'UPI', CHEQUE: 'Cheque', EMPTY_PACKETS: 'Empty packets', VOUCHERS: 'Vouchers', OTHERS: 'Others' };
   const methodName = (m) => METHOD[m] || String(m || 'Other').toLowerCase().replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
   const kicker = (num, text) => `<div class="section-kicker"><span>${text}</span></div>`;
