@@ -45,6 +45,7 @@
     settlementPage: 0,
     purchasesPage: 0,
     invBillsPage: 0,
+    invProductFilter: '',
     paymentsReportData: null,
     paymentsReportLoading: false,
     paymentsReportPage: 0,
@@ -1317,14 +1318,27 @@
     setHidden('inv-stock-section', loading || !data || state.invView !== 'stock');
     $('inv-bills-download-csv').disabled = !hasBills;
 
+    // Populate product filter dropdown (preserve selection)
+    const productSel = $('inv-product-filter');
+    const productCurVal = productSel.value;
+    if (data?.inventory?.length) {
+      productSel.innerHTML = '<option value="">All products</option>' +
+        data.inventory.map((p) => `<option value="${escapeHtml(p.name)}"${p.name === productCurVal ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+      if (productSel.value !== productCurVal) state.invProductFilter = productSel.value;
+    }
+
     if (!data || loading) return;
 
-    // Movement log table — paginated 5 per page
+    // Movement log table — paginated 5 per page, filtered to the selected product
+    const filteredBills = state.invProductFilter
+      ? data.bills.filter((b) => b.product_name === state.invProductFilter)
+      : data.bills;
+    const hasFilteredBills = filteredBills.length > 0;
     const INV_PAGE_SIZE = 5;
-    const invTotalPages = hasBills ? Math.max(1, Math.ceil(data.bills.length / INV_PAGE_SIZE)) : 1;
+    const invTotalPages = hasFilteredBills ? Math.max(1, Math.ceil(filteredBills.length / INV_PAGE_SIZE)) : 1;
     state.invBillsPage = Math.min(state.invBillsPage, invTotalPages - 1);
     const invStart = state.invBillsPage * INV_PAGE_SIZE;
-    const invPage  = hasBills ? data.bills.slice(invStart, invStart + INV_PAGE_SIZE) : [];
+    const invPage  = hasFilteredBills ? filteredBills.slice(invStart, invStart + INV_PAGE_SIZE) : [];
     $('inv-bills-body').innerHTML = invPage.length
       ? invPage.map((b) => {
           const typeBadge = b.entry_type === 'purchase'
@@ -1348,7 +1362,7 @@
             <td>${qty}</td>
           </tr>`;
         }).join('')
-      : '<tr><td colspan="5">No inventory movements in this date range.</td></tr>';
+      : `<tr><td colspan="5">No inventory movements ${state.invProductFilter ? 'match this product filter.' : 'in this date range.'}</td></tr>`;
     $('inv-bills-pagination').innerHTML = invTotalPages > 1
       ? `<div class="pagination-controls">
            <button class="page-btn" data-page-target="inv-bills" data-page-dir="-1" ${state.invBillsPage === 0 ? 'disabled' : ''}>← Prev</button>
@@ -1393,7 +1407,11 @@
 
   function downloadBillsCsv() {
     if (!state.inventoryData?.bills?.length) return;
-    const { filters, bills } = state.inventoryData;
+    const { filters } = state.inventoryData;
+    const bills = state.invProductFilter
+      ? state.inventoryData.bills.filter((b) => b.product_name === state.invProductFilter)
+      : state.inventoryData.bills;
+    if (!bills.length) return;
     const q = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;
     const csv = [
       `${q('Inventory Movement Log')}`,
@@ -3971,6 +3989,7 @@
     enhanceSelectAsCombobox($('eprep-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
     enhanceSelectAsCombobox($('settle-profile-select'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found' });
     enhanceSelectAsCombobox($('profile-stock-filter'), { placeholder: 'All profiles', emptyText: 'No buyer profiles found', extraClass: 'filter-select' });
+    enhanceSelectAsCombobox($('inv-product-filter'), { placeholder: 'All products', emptyText: 'No products found' });
     $('role-select').addEventListener('change', (event) => {
       const chosen = event.target.value;
       if (chosen === 'Admin') {
@@ -4096,6 +4115,11 @@
     $('report-download-csv').addEventListener('click', downloadReportCsv);
     $('matrix-download-csv').addEventListener('click', downloadSkuMatrixCsv);
     $('apply-inv-filters').addEventListener('click', loadInventoryReport);
+    $('inv-product-filter').addEventListener('change', (event) => {
+      state.invProductFilter = event.target.value;
+      state.invBillsPage = 0;
+      renderInventoryReport();
+    });
     $('inv-bills-download-csv').addEventListener('click', downloadBillsCsv);
     $('inv-stock-download-csv').addEventListener('click', downloadInventoryCsv);
     $('profile-stock-download-csv').addEventListener('click', downloadProfileStockCsv);
