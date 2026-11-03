@@ -437,10 +437,11 @@
           <td class="price"><div class="stock-cell" style="justify-content:flex-end"><span>${currency(profile.current_balance)}</span><button class="button button-quiet compact-button stock-adjust" type="button" data-balance-adjust="${escapeHtml(profile.id)}">Correct</button></div></td>
           <td><input class="admin-text-input pname-input" data-profile-id="${escapeHtml(profile.id)}" type="text" maxlength="120" value="${escapeHtml(profile.name)}" aria-label="New name for ${escapeHtml(profile.name)}" /></td>
           <td><button class="button button-quiet compact-button pname-save" type="button" data-profile-id="${escapeHtml(profile.id)}">Save name</button></td>
+          <td class="portal-login-cell" data-portal-profile="${escapeHtml(profile.id)}"></td>
           <td><button class="button button-quiet compact-button profile-hide" type="button" data-profile-id="${escapeHtml(profile.id)}" data-hidden="${profile.hidden ? 'true' : 'false'}">${profile.hidden ? 'Unhide' : 'Hide'}</button></td>
           <td><button class="delete-profile" type="button" data-delete-profile="${escapeHtml(profile.id)}">Delete</button></td>
         </tr>`).join('')
-      : '<tr><td colspan="7">No buyer profiles found.</td></tr>';
+      : '<tr><td colspan="8">No buyer profiles found.</td></tr>';
     refreshPurchaseProductOptions();
     $('inventory-total-products').textContent = integer(state.products.length);
     const PURCHASE_PAGE_SIZE = 20;
@@ -2072,6 +2073,9 @@
 
   function updateTotals(itemById = new Map(state.items.map((item) => [Number(item.product_id), item]))) {
     let sales = 0;
+    // Load-in table footer: number of product rows with an additional load entered (not units).
+    const loadCountCell = $('load-total-count');
+    if (loadCountCell) loadCountCell.textContent = integer(state.items.filter((item) => Number(state.loadDrafts[item.product_id] || 0) > 0).length);
     state.items.forEach((item) => {
       const routeStock = Number(item.opening_stock || 0) + Number(item.loaded_stock || 0) + Number(state.loadDrafts[item.product_id] || 0);
       const closing = Number(state.closingDrafts[item.product_id] ?? item.closing_stock ?? 0);
@@ -3530,7 +3534,7 @@
     event.preventDefault();
     const password = $('login-password').value;
     const btn = $('login-submit');
-    btn.disabled = true; btn.textContent = 'Signing in…';
+    btn.disabled = true; const lb = btn.querySelector('.lb-text'); if (lb) lb.textContent = 'Signing in…';
     setHidden('login-error', true);
     try {
       const res = await request('/api/login', { method: 'POST', body: JSON.stringify({ password }) });
@@ -3542,7 +3546,7 @@
       $('login-password').value = '';
       $('login-password').focus();
     } finally {
-      btn.disabled = false; btn.textContent = 'Sign in';
+      btn.disabled = false; if (lb) lb.textContent = 'Sign in';
     }
   }
   async function doLogout() {
