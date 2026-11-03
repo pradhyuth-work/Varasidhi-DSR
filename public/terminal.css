@@ -198,3 +198,13 @@ body::after { opacity: .3; }
 .combobox-option { background: transparent !important; } .combobox-option.active, .combobox-option:hover { background: rgba(70,201,149,.12) !important; color: #6ed9b0 !important; }
 .pr-day-row td, .pr-day-label { background: #141d17 !important; }
 .pr-day-row td { border-color: #23312a !important; }
+
+/* ---- snapshot export roots (#settle-detail-panel, #perf-snapshot-area) have
+   no background of their own -- fine in the live page, which inherits the
+   dark body behind them, but html2canvas renders only this subtree against a
+   hardcoded white base, so every gap/margin inside them showed through as
+   white in the downloaded PNG. Giving the roots themselves a solid dark
+   background covers every such gap in one shot. ---- */
+#settle-detail-panel, #perf-snapshot-area { background: #070b08 !important; }
+.settle-balance-row { background: #101712 !important; border-color: #23312a !important; }
+.settle-bal-stat { border-right-color: #23312a !important; }
