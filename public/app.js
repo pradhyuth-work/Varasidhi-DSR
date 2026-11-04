@@ -2269,6 +2269,7 @@
     const method = $('payment-method').value;
     const isCheque = method === 'CHEQUE';
     const isVoucher = method === 'VOUCHERS';
+    const isBankTransfer = method === 'BANK_TRANSFER' || method === 'BANK_TRANSFER_HDFC' || method === 'BANK_TRANSFER_UNION';
     // Only treat this as the itemized flow when the entry block is actually
     // showing — if the rates fetch failed, togglePaymentMethodFields() falls
     // back to a plain typed amount for EMPTY_PACKETS too (see there).
@@ -2277,6 +2278,7 @@
     let amount = Number($('payment-amount').value);
     let chequeDetails = '';
     let voucherDetails = '';
+    let transferDetails = '';
     let emptyPacksPayload = null;
     let upiAccountName = '';
     if (isUpi) {
@@ -2307,6 +2309,18 @@
       if (vouchers.some((v) => !(v.amount > 0))) return toast('Enter an amount for every voucher.', 'error');
       amount = roundMoney(vouchers.reduce((sum, v) => sum + v.amount, 0));
       voucherDetails = vouchers.map((v) => `#${v.serial}${v.date ? ` (${formatMmYy(v.date)})` : ''} ${currency(v.amount)}`).join('; ');
+    } else if (isBankTransfer) {
+      const rows = Array.from(document.querySelectorAll('#payment-transfers-list .transfer-row'));
+      const transfers = rows.map((row) => ({
+        reference: row.querySelector('.transfer-reference').value.trim(),
+        date: row.querySelector('.transfer-date').value,
+        amount: Number(row.querySelector('.transfer-amount').value || 0),
+      })).filter((t) => t.reference || t.date || t.amount > 0);
+      if (!transfers.length) return toast('Add at least one transfer.', 'error');
+      if (transfers.some((t) => !t.reference)) return toast('Enter a reference/UTR number for every transfer.', 'error');
+      if (transfers.some((t) => !(t.amount > 0))) return toast('Enter an amount for every transfer.', 'error');
+      amount = roundMoney(transfers.reduce((sum, t) => sum + t.amount, 0));
+      transferDetails = transfers.map((t) => `#${t.reference}${t.date ? ` (${formatDdMmYy(t.date)})` : ''} ${currency(t.amount)}`).join('; ');
     } else if (isEmptyPackets) {
       const rows = Array.from(document.querySelectorAll('#payment-empty-packs-list .empty-pack-qty-input'));
       const lines = rows
@@ -2323,6 +2337,7 @@
     if (refText) labelParts.push(refText);
     if (chequeDetails) labelParts.push(chequeDetails);
     if (voucherDetails) labelParts.push(voucherDetails);
+    if (transferDetails) labelParts.push(transferDetails);
     if (upiAccountName) labelParts.push(`A/C: ${upiAccountName}`);
     setBusy(true);
     try {
@@ -3419,6 +3434,7 @@
     $('payment-date').value = todayIso();
     $('payment-cheques-list').innerHTML = '';
     $('payment-vouchers-list').innerHTML = '';
+    $('payment-transfers-list').innerHTML = '';
     $('payment-empty-packs-list').innerHTML = '';
     // Refetch rates fresh each time the modal opens, rather than carrying a
     // stale cache (or a stale failure) across separate payment entries.
@@ -3482,6 +3498,35 @@
     if ($('payment-method').value === 'VOUCHERS') $('payment-amount').value = total > 0 ? total.toFixed(2) : '';
   }
 
+  function addTransferRow() {
+    const row = document.createElement('div');
+    row.className = 'transfer-row';
+    row.innerHTML = `
+      <label class="transfer-field"><span>Reference / UTR no.</span><input type="text" class="transfer-reference" maxlength="40" placeholder="e.g. UTR123456" /></label>
+      <label class="transfer-field"><span>Date</span><input type="date" class="transfer-date" /></label>
+      <label class="transfer-field"><span>Amount</span><input type="number" class="transfer-amount" min="0.01" step="0.01" placeholder="0.00" /></label>
+      <button type="button" class="transfer-row-delete" aria-label="Remove transfer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14m-9 4v6m4-6v6M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg></button>`;
+    row.querySelector('.transfer-date').value = todayIso();
+    $('payment-transfers-list').appendChild(row);
+    updateTransferTotal();
+  }
+
+  function removeTransferRow(row) {
+    row.remove();
+    if (!$('payment-transfers-list').children.length) addTransferRow();
+    updateTransferTotal();
+  }
+
+  function updateTransferTotal() {
+    const amounts = Array.from(document.querySelectorAll('#payment-transfers-list .transfer-amount')).map((input) => Number(input.value || 0));
+    const total = roundMoney(amounts.reduce((sum, value) => sum + value, 0));
+    $('payment-transfers-total').textContent = currency(total);
+    const method = $('payment-method').value;
+    if (method === 'BANK_TRANSFER' || method === 'BANK_TRANSFER_HDFC' || method === 'BANK_TRANSFER_UNION') {
+      $('payment-amount').value = total > 0 ? total.toFixed(2) : '';
+    }
+  }
+
   // Empty packets collected: fetch today's per-product rates, show a packets
   // entry row per product, and derive the amount — same read-only-total
   // pattern as cheques, below. Cached per modal-open in state.emptyPackRates
@@ -3536,15 +3581,18 @@
     const method = $('payment-method').value;
     const isCheque = method === 'CHEQUE';
     const isVoucher = method === 'VOUCHERS';
+    const isBankTransfer = method === 'BANK_TRANSFER' || method === 'BANK_TRANSFER_HDFC' || method === 'BANK_TRANSFER_UNION';
     const isEmptyPackets = method === 'EMPTY_PACKETS';
     const isUpi = method === 'UPI';
     const wasCheque = !$('payment-cheques-field').hidden;
     const wasVoucher = !$('payment-vouchers-field').hidden;
+    const wasBankTransfer = !$('payment-transfers-field').hidden;
     const wasEmptyPackets = !$('payment-empty-packs-field').hidden;
     setHidden('payment-upi-name-field', !isUpi);
     if (!isUpi) $('payment-upi-name').value = '';
     setHidden('payment-cheques-field', !isCheque);
     setHidden('payment-vouchers-field', !isVoucher);
+    setHidden('payment-transfers-field', !isBankTransfer);
     if (isCheque) {
       $('payment-amount').readOnly = true;
       setHidden('payment-empty-packs-field', true);
@@ -3559,6 +3607,14 @@
       $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', true);
       if (!$('payment-vouchers-list').children.length) addVoucherRow();
       updateVoucherTotal();
+      return;
+    }
+    if (isBankTransfer) {
+      $('payment-amount').readOnly = true;
+      setHidden('payment-empty-packs-field', true);
+      $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', true);
+      if (!$('payment-transfers-list').children.length) addTransferRow();
+      updateTransferTotal();
       return;
     }
     if (isEmptyPackets) {
@@ -3582,7 +3638,7 @@
     setHidden('payment-empty-packs-field', true);
     $('payment-amount').readOnly = false;
     $('payment-modal').querySelector('.modal').classList.toggle('modal-wide', false);
-    if (wasCheque || wasVoucher || wasEmptyPackets) $('payment-amount').value = ''; // clear the derived total, not a user-typed figure
+    if (wasCheque || wasVoucher || wasBankTransfer || wasEmptyPackets) $('payment-amount').value = ''; // clear the derived total, not a user-typed figure
   }
 
   // ---- Auth / login gate --------------------------------------------------
@@ -4226,6 +4282,7 @@
     $('payment-method').addEventListener('change', togglePaymentMethodFields);
     $('add-cheque-row').addEventListener('click', addChequeRow);
     $('add-voucher-row').addEventListener('click', addVoucherRow);
+    $('add-transfer-row').addEventListener('click', addTransferRow);
     $('close-admin-auth').addEventListener('click', closeAdminAuth);
     $('cancel-admin-auth').addEventListener('click', closeAdminAuth);
     $('admin-auth-modal').addEventListener('click', (event) => { if (event.target === $('admin-auth-modal')) closeAdminAuth(); });
@@ -4241,6 +4298,7 @@
       }
       if (event.target.matches('.cheque-amount')) updateChequeTotal();
       if (event.target.matches('.voucher-amount')) updateVoucherTotal();
+      if (event.target.matches('.transfer-amount')) updateTransferTotal();
       if (event.target.matches('.empty-pack-qty-input')) updateEmptyPackTotal();
     });
     // Number inputs change value on mouse-wheel scroll while focused; blur on scroll so
@@ -4257,6 +4315,8 @@
       if (chequeDeleteButton) removeChequeRow(chequeDeleteButton.closest('.cheque-row'));
       const voucherDeleteButton = event.target.closest('.voucher-row-delete');
       if (voucherDeleteButton) removeVoucherRow(voucherDeleteButton.closest('.voucher-row'));
+      const transferDeleteButton = event.target.closest('.transfer-row-delete');
+      if (transferDeleteButton) removeTransferRow(transferDeleteButton.closest('.transfer-row'));
       const rateButton = event.target.closest('[data-product-id].rate-save');
       if (rateButton) saveRate(rateButton.dataset.productId);
       const stockButton = event.target.closest('[data-stock-adjust]');

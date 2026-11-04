@@ -184,6 +184,19 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .add-voucher-btn { margin-top: 2px; }
 .voucher-total-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-muted); }
 .voucher-total-row strong { color: var(--ink); font: 700 15px var(--mono); }
+
+.transfer-rows { display: grid; gap: 10px; margin-top: 2px; }
+.transfer-row { position: relative; display: flex; flex-wrap: wrap; gap: 8px; padding-right: 34px; }
+.transfer-field { flex: 1 1 100px; min-width: 88px; display: flex; flex-direction: column; gap: 4px; margin: 0; }
+.transfer-field span { color: var(--ink-muted); font: 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.transfer-field input { width: 100%; padding: 8px 9px; border: 1px solid #ccd8d0; border-radius: 5px; color: var(--ink); background: #fff; font-size: 12px; outline: none; }
+.transfer-field input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(31,103,100,.1); }
+.transfer-row-delete { position: absolute; right: 0; top: 17px; width: 28px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--ink-muted); }
+.transfer-row-delete:hover { background: var(--red-soft-hover); color: var(--red); }
+.transfer-row-delete svg { width: 14px; height: 14px; }
+.add-transfer-btn { margin-top: 2px; }
+.transfer-total-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-muted); }
+.transfer-total-row strong { color: var(--ink); font: 700 15px var(--mono); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 23px; }.toast-region { position: fixed; bottom: 22px; right: 23px; z-index: 20; display: grid; gap: 8px; }.toast { max-width: 340px; display: flex; align-items: center; gap: 10px; padding: 12px 15px; color: #f1f5ed; background: var(--teal-deep); border-left: 3px solid #dca657; border-radius: 6px; box-shadow: var(--shadow-lg); font-size: 12px; animation: rise .22s ease-out; }.toast.error { border-left-color: #d88372; }.toast b { font: 10px var(--mono); color: #dce8df; }
 .settle-bar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 14px; background: #edf4f0; border: 1px solid #cad9d1; border-radius: 8px; padding: 14px 18px; flex-wrap: wrap; }
 .settle-bar-stats { display: flex; gap: 28px; flex-wrap: wrap; }
