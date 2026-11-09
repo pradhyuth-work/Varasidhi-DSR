@@ -69,6 +69,25 @@
   const firstOfMonth = () => `${todayIso().slice(0, 7)}-01`;
   const thisMonthIso = () => todayIso().slice(0, 7);
   const currency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // A bank-transfer payment can hold several transfers packed into one label
+  // ("07-11-26 · #073 (07-11-26) ₹10,000.00; #277 (07-11-26) ₹13,000.00").
+  // For reports and printouts, split it into one row per transfer so each UTR
+  // can be ticked off against the bank statement. Anything that doesn't parse
+  // cleanly, or whose parts don't add up to the stored amount, is left as-is.
+  const expandPaymentRows = (p) => {
+    if (!/^BANK_TRANSFER/.test(String(p.method || ''))) return [p];
+    const segments = String(p.label_info || '').split(' · ');
+    const idx = segments.findIndex((s) => s.startsWith('#'));
+    if (idx < 1) return [p];
+    const matches = segments[idx].split('; ').map((s) => s.match(/^#(.+?)(?: \((\d{2}-\d{2}-\d{2})\))? ₹([\d,]+(?:\.\d+)?)$/));
+    if (matches.some((m) => !m)) return [p];
+    const parts = matches.map((m) => ({ ref: m[1], date: m[2] || segments[0], amount: Number(m[3].replace(/,/g, '')) }));
+    const sum = parts.reduce((s, t) => s + t.amount, 0);
+    if (Math.abs(sum - Number(p.amount)) > 0.01) return [p];
+    const extras = segments.filter((_, i) => i !== 0 && i !== idx);
+    return parts.map((t) => ({ ...p, label_info: [t.date, ...extras, `#${t.ref}`].join(' · '), amount: t.amount }));
+  };
   const integer = (value) => Number(value || 0).toLocaleString('en-IN');
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
   const dateLabel = (value) => {
@@ -755,7 +774,7 @@
 
     // Flatten all payment entries newest-first, then paginate 10 per page
     const PR_PAGE_SIZE = 10;
-    const allEntries = days.flatMap((day) => day.payments.map((p) => ({ ...p, date: day.date, day_total: day.day_total })));
+    const allEntries = days.flatMap((day) => day.payments.flatMap(expandPaymentRows).map((p) => ({ ...p, date: day.date, day_total: day.day_total })));
     const prTotalPages = Math.max(1, Math.ceil(allEntries.length / PR_PAGE_SIZE));
     state.paymentsReportPage = Math.min(state.paymentsReportPage, prTotalPages - 1);
     const prStart = state.paymentsReportPage * PR_PAGE_SIZE;
@@ -842,7 +861,7 @@
       [q('Date'), q('Buyer'), q('Method'), q('Reference'), q('Amount'), q('Recorded By')].join(','),
     ];
     for (const day of days) {
-      for (const p of day.payments) {
+      for (const p of day.payments.flatMap(expandPaymentRows)) {
         rows.push([q(day.date), q(p.buyer_name), q(p.method), q(p.label_info || ''), q(p.amount), q(p.created_by || '')].join(','));
       }
     }
@@ -1696,7 +1715,7 @@
     $('settle-payments-list').innerHTML = payments.length
       ? `<div class="table-shell"><table class="route-table admin-table">
            <thead><tr><th>METHOD</th><th>REFERENCE</th><th>AMOUNT</th></tr></thead>
-           <tbody>${payments.map((p) => `
+           <tbody>${payments.flatMap(expandPaymentRows).map((p) => `
              <tr>
                <td>${escapeHtml(p.method)}</td>
                <td class="stock-quiet">${escapeHtml(p.label_info || '—')}</td>
@@ -1760,7 +1779,7 @@
     rows.push('');
     rows.push(q('Payments'));
     rows.push([q('Method'), q('Reference'), q('Amount')].join(','));
-    session.payments.forEach((p) => rows.push([q(p.method), q(p.label_info || ''), q(Number(p.amount).toFixed(2))].join(',')));
+    session.payments.flatMap(expandPaymentRows).forEach((p) => rows.push([q(p.method), q(p.label_info || ''), q(Number(p.amount).toFixed(2))].join(',')));
     rows.push('');
     rows.push([q('Previous Balance'),  q(Number(session.prev_balance).toFixed(2))].join(','));
     rows.push([q('Total Sales'),       q(Number(session.total_sales).toFixed(2))].join(','));
