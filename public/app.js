@@ -70,23 +70,25 @@
   const thisMonthIso = () => todayIso().slice(0, 7);
   const currency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // A bank-transfer payment can hold several transfers packed into one label
-  // ("07-11-26 · #073 (07-11-26) ₹10,000.00; #277 (07-11-26) ₹13,000.00").
-  // For reports and printouts, split it into one row per transfer so each UTR
-  // can be ticked off against the bank statement. Anything that doesn't parse
+  // Bank-transfer, cheque and voucher payments can hold several items packed
+  // into one label ("07-11-26 · #073 (07-11-26) ₹10,000.00; #277 (07-11-26) ₹13,000.00").
+  // For reports and printouts, split them into one row per item so each UTR /
+  // cheque / voucher number can be ticked off. Anything that doesn't parse
   // cleanly, or whose parts don't add up to the stored amount, is left as-is.
   const expandPaymentRows = (p) => {
-    if (!/^BANK_TRANSFER/.test(String(p.method || ''))) return [p];
+    if (!/^(BANK_TRANSFER|CHEQUE|VOUCHERS)/.test(String(p.method || ''))) return [p];
     const segments = String(p.label_info || '').split(' · ');
     const idx = segments.findIndex((s) => s.startsWith('#'));
     if (idx < 1) return [p];
-    const matches = segments[idx].split('; ').map((s) => s.match(/^#(.+?)(?: \((\d{2}-\d{2}-\d{2})\))? ₹([\d,]+(?:\.\d+)?)$/));
+    const matches = segments[idx].split('; ').map((s) => s.match(/^#(.+?)(?: \((\d{2}-\d{2}(?:-\d{2})?)\))? ₹([\d,]+(?:\.\d+)?)$/));
     if (matches.some((m) => !m)) return [p];
-    const parts = matches.map((m) => ({ ref: m[1], date: m[2] || segments[0], amount: Number(m[3].replace(/,/g, '')) }));
+    const parts = matches.map((m) => ({ ref: m[1], date: m[2] || '', amount: Number(m[3].replace(/,/g, '')) }));
     const sum = parts.reduce((s, t) => s + t.amount, 0);
     if (Math.abs(sum - Number(p.amount)) > 0.01) return [p];
     const extras = segments.filter((_, i) => i !== 0 && i !== idx);
-    return parts.map((t) => ({ ...p, label_info: [t.date, ...extras, `#${t.ref}`].join(' · '), amount: t.amount }));
+    return parts.map((t) => ({ ...p, label_info: (/^\d{2}-\d{2}-\d{2}$/.test(t.date)
+      ? [t.date, ...extras, `#${t.ref}`]
+      : [segments[0], ...extras, `#${t.ref}${t.date ? ` (${t.date})` : ''}`]).join(' · '), amount: t.amount }));
   };
   const integer = (value) => Number(value || 0).toLocaleString('en-IN');
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
