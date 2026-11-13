@@ -8,11 +8,13 @@ export const BILL_ALIASES = {
     CIG0002051: { product: "Lights 20s", sticksPerPack: 20 },
     CIG0002001: { product: "Red 20s", sticksPerPack: 20 },
     CIG0002036: { product: "Advance 20s", sticksPerPack: 20 },
+    CIG0002045: { product: "Advance 20s", sticksPerPack: 20 }, // Gold Advance 20s, ST UPG2.0 packaging
     CIG0002021: { product: "Fuse 20s", sticksPerPack: 20 },
     CIG0002077: { product: "Vista Forest 20s", sticksPerPack: 20 },
     CIG0002052: { product: "Lights 10s", sticksPerPack: 10 },
     CIG0002014: { product: "Red 10s", sticksPerPack: 10 },
     CIG0002037: { product: "Advance 10s", sticksPerPack: 10 },
+    CIG0002044: { product: "Advance 10s", sticksPerPack: 10 }, // Gold Advance 10s, ST UPG2.0 packaging
     CIG0002031: { product: "Compact 10s", sticksPerPack: 10 },
     CIG0002020: { product: "Fuse 10s", sticksPerPack: 10 },
     CIG0002010: { product: "Clove 10s", sticksPerPack: 10 },
