@@ -2875,63 +2875,33 @@
   }
 
   // ---- Bill upload (PDF / photo) --------------------------------------------
-  // The server reads the bill and proposes lines; they land in the same preview
-  // the CSV import uses, so the admin reviews and posts exactly as before.
-  const MAX_BILL_RAW_BYTES = 3.2 * 1024 * 1024; // base64 inflates ~33%; Vercel caps bodies at 4.5MB
-
-  function fileToBase64(blob) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-      reader.onerror = () => reject(new Error('Could not read this file.'));
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  // Phone photos are huge; shrink them so the upload is quick. PDFs pass through.
-  async function prepareBillFile(file) {
-    if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
-    try {
-      const bitmap = await createImageBitmap(file);
-      const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
-      if (scale === 1 && file.size < 1500000) return file;
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(bitmap.width * scale);
-      canvas.height = Math.round(bitmap.height * scale);
-      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-      return blob || file;
-    } catch {
-      return file;
-    }
-  }
-
+  // The bill is read on this device (OCR / PDF text) — nothing is uploaded and no API key is needed.
+  // Matched lines land in the same preview the CSV import uses, so the admin reviews and posts as before.
   async function handleBillFileSelected(event) {
     const picked = event.target.files?.[0];
     event.target.value = '';
     if (!picked) return;
     const text = $('bill-scan-text');
     const label = text.textContent;
-    text.textContent = 'Reading bill…';
+    const say = (t) => { text.textContent = t; };
     $('bill-scan-label').setAttribute('aria-busy', 'true');
+    say('Getting ready…');
     try {
-      const file = await prepareBillFile(picked);
-      const mediaType = file.type || picked.type;
-      if (file.size > MAX_BILL_RAW_BYTES) throw new Error('That file is too large (about 3 MB max) — upload a smaller photo or a lighter PDF.');
-      const result = await request('/api/inventory/bill-extract', adminOptions({
-        method: 'POST',
-        body: JSON.stringify({ mediaType, data: await fileToBase64(file) }),
-      }));
-      const warnings = [...(result.warnings || [])];
-      if (result.duplicateOf) warnings.unshift(`This bill number looks already inwarded: ${result.duplicateOf}. Check before posting it again.`);
+      const [{ readBillText }, { parseBill }] = await Promise.all([import('/bill-scan.js'), import('/bill-parse.js')]);
+      const raw = await readBillText(picked, (status, p) =>
+        say(status === 'recognizing text' ? `Reading the bill… ${Math.round(p * 100)}%` : 'Loading the reader… the first time takes a moment.'));
+      const result = parseBill(raw, state.products.map((p) => p.name));
+      const byName = new Map(state.products.map((p) => [p.name.trim().toLowerCase(), p]));
+      const warnings = [...result.warnings];
       const lines = [];
       for (const l of result.lines) {
-        if (l.productId == null) {
+        const product = l.productName ? byName.get(l.productName.trim().toLowerCase()) : null;
+        if (!product) {
           warnings.push(`"${l.billText}" (qty ${l.quantity}) didn't match any product, so it is NOT in the list below. Add the product first, or post this line by hand.`);
           continue;
         }
-        if (l.note) warnings.push(`${l.productName}: ${l.note}`);
-        lines.push({ productId: Number(l.productId), qtyAdded: l.quantity, productName: l.productName, unitPrice: null });
+        if (l.note) warnings.push(`${product.name}: ${l.note}`);
+        lines.push({ productId: Number(product.id), qtyAdded: l.quantity, productName: product.name, unitPrice: null });
       }
       if (!lines.length) {
         showCsvParseError(['No usable product lines were found on this bill.', ...warnings].join(' '));
@@ -2941,12 +2911,19 @@
         showCsvParseError(`A bill can hold at most ${MAX_PURCHASE_LINES} lines — this one has ${lines.length}. Split it across more than one bill.`);
         return;
       }
-      csvInwardParsed = { lines, supplierRef: result.supplierRef || '', warnings };
+      if (result.invoiceNumber) {
+        const inv = result.invoiceNumber.toLowerCase();
+        const dup = state.purchases.find((p) => String(p.supplier_ref || '').toLowerCase().includes(inv));
+        if (dup) warnings.unshift(`This bill number looks already inwarded: ${dup.supplier_ref}. Check before posting it again.`);
+      }
+      warnings.push('Scanned text can have mistakes — compare every product and quantity with the bill.');
+      const supplierRef = [result.invoiceNumber, result.invoiceDate].filter(Boolean).join(' · ');
+      csvInwardParsed = { lines, supplierRef, warnings };
       renderCsvPreview(csvInwardParsed);
     } catch (error) {
       showCsvParseError(error.message || 'Could not read this bill.');
     } finally {
-      text.textContent = label;
+      say(label);
       $('bill-scan-label').removeAttribute('aria-busy');
     }
   }
