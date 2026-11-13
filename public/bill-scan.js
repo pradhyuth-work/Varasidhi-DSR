@@ -100,6 +100,51 @@ async function photoToCanvas(file) {
     src.close();
     return enhance(c);
 }
+function rotated(c, deg) {
+    if (deg === 0)
+        return c;
+    const swap = deg === 90 || deg === 270;
+    const o = document.createElement("canvas");
+    o.width = swap ? c.height : c.width;
+    o.height = swap ? c.width : c.height;
+    const x = o.getContext("2d", { willReadFrequently: true });
+    if (!x)
+        return c;
+    x.translate(o.width / 2, o.height / 2);
+    x.rotate((deg * Math.PI) / 180);
+    x.drawImage(c, -c.width / 2, -c.height / 2);
+    return o;
+}
+function shrunk(c, max) {
+    const k = Math.min(1, max / Math.max(c.width, c.height));
+    if (k === 1)
+        return c;
+    const o = document.createElement("canvas");
+    o.width = Math.round(c.width * k);
+    o.height = Math.round(c.height * k);
+    o.getContext("2d")?.drawImage(c, 0, 0, o.width, o.height);
+    return o;
+}
+/**
+ * Photos of bills are often taken sideways or upside down (and a phone doesn't always say so). Read a
+ * small copy in each direction and keep the one the reader is most confident about; stop early when
+ * the photo is already the right way up.
+ */
+async function uprightCanvas(worker, c, onProgress) {
+    const small = shrunk(c, 900);
+    const conf = async (deg) => (await worker.recognize(rotated(small, deg))).data.confidence ?? 0;
+    onProgress?.("orienting", 0);
+    const first = await conf(0);
+    if (first >= 70)
+        return c;
+    let best = { deg: 0, conf: first };
+    for (const deg of [90, 270, 180]) {
+        const cf = await conf(deg);
+        if (cf > best.conf)
+            best = { deg, conf: cf };
+    }
+    return best.deg === 0 || best.conf < first + 8 ? c : rotated(c, best.deg);
+}
 async function ocr(canvases, onProgress) {
     const T = await loadTesseract();
     const worker = await T.createWorker("eng", 1, {
@@ -110,9 +155,14 @@ async function ocr(canvases, onProgress) {
         // words stops "Parle-G 800g   24   10.50" from running together.
         await worker.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
         const parts = [];
-        for (const c of canvases)
-            parts.push((await worker.recognize(c)).data.text || "");
-        return parts.join("\n");
+        const confs = [];
+        for (const c of canvases) {
+            const upright = await uprightCanvas(worker, c, onProgress);
+            const { data } = await worker.recognize(upright);
+            parts.push(data.text || "");
+            confs.push(data.confidence ?? 0);
+        }
+        return { text: parts.join("\n"), confidence: confs.reduce((a, b) => a + b, 0) / Math.max(1, confs.length) };
     }
     finally {
         try {
@@ -152,7 +202,7 @@ export async function readBillText(file, onProgress) {
         texts.push(await pdfText(await doc.getPage(n)));
     const digital = texts.join("\n");
     if (digital.replace(/\s/g, "").length >= 40)
-        return digital;
+        return { text: digital, confidence: null };
     // A scanned PDF has no text inside it: draw each page and read it like a photo.
     const canvases = [];
     for (let n = 1; n <= pages; n++) {

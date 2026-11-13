@@ -533,10 +533,14 @@
                   <h2>Record inventory purchase</h2>
                   <p class="card-copy">Post an incoming bill and increase warehouse stock immediately.</p>
                   <div class="csv-bulk-trigger">
+                    <label class="button button-primary compact-button" for="bill-scan-page-input">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17V3m0 0 4 4m-4-4-4 4M4 17v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>Upload bill (PDF / photo)
+                    </label>
+                    <input id="bill-scan-page-input" type="file" accept="application/pdf,image/*" hidden />
                     <button class="button button-outline compact-button" type="button" id="open-csv-inward">
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17V3m0 0 4 4m-4-4-4 4M4 17v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>Bulk upload from CSV
                     </button>
-                    <span class="field-hint">Filling in many lines? Do it in a spreadsheet instead of one at a time below.</span>
+                    <span class="field-hint">Upload the supplier's bill to fill the lines for you, or use a spreadsheet instead of typing one at a time below.</span>
                   </div>
                   <span class="form-field-label">Products on this bill</span>
                   <div id="purchase-lines" class="purchase-lines"></div>

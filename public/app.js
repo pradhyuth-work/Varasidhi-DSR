@@ -2888,9 +2888,14 @@
     say('Getting ready…');
     try {
       const [{ readBillText }, { parseBill }] = await Promise.all([import('/bill-scan.js'), import('/bill-parse.js')]);
-      const raw = await readBillText(picked, (status, p) =>
-        say(status === 'recognizing text' ? `Reading the bill… ${Math.round(p * 100)}%` : 'Loading the reader… the first time takes a moment.'));
+      const { text: raw, confidence } = await readBillText(picked, (status, p) =>
+        say(status === 'recognizing text' ? `Reading the bill… ${Math.round(p * 100)}%`
+          : status === 'orienting' ? "Checking the photo's direction…"
+          : 'Loading the reader… the first time takes a moment.'));
       const result = parseBill(raw, state.products.map((p) => p.name));
+      if (confidence !== null && confidence < 70) {
+        result.warnings.unshift('This photo is hard to read (small, blurry or too dense), so quantities may be wrong or missing. A PDF of the bill, or a closer straight-on photo, reads much better.');
+      }
       const byName = new Map(state.products.map((p) => [p.name.trim().toLowerCase(), p]));
       const warnings = [...result.warnings];
       const lines = [];
@@ -4282,6 +4287,12 @@
     $('csv-upload-input').addEventListener('change', handleCsvFileSelected);
     $('confirm-csv-inward').addEventListener('click', confirmCsvInward);
     $('bill-scan-input').addEventListener('change', handleBillFileSelected);
+    // Same upload, straight from the Inventory inwarding page: open the import window, then read the bill into it.
+    $('bill-scan-page-input').addEventListener('change', (event) => {
+      if (!event.target.files?.[0]) return;
+      openCsvInwardModal();
+      handleBillFileSelected(event);
+    });
     $('open-csv-rate').addEventListener('click', openCsvRateModal);
     $('close-csv-rate').addEventListener('click', closeCsvRateModal);
     $('cancel-csv-rate').addEventListener('click', closeCsvRateModal);
