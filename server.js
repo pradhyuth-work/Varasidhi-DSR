@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { database, withTransaction } from "./database.js";
 import { teamRouter, portalAdminRouter } from "./team-access.js";
+import { readBill, BillReadError, BILL_MEDIA_TYPES } from "./bill-extract.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -40,7 +41,12 @@ app.get("/sw.js", (_req, res) => {
   });
 });
 
-app.use(express.json({ limit: "100kb" }));
+// Bill uploads (PDF/photo as base64) are the one route that needs a bigger body;
+// everything else keeps the original 100kb cap. Vercel itself caps bodies at 4.5MB.
+const BILL_UPLOAD_PATH = "/api/inventory/bill-extract";
+const smallJson = express.json({ limit: "100kb" });
+const billJson = express.json({ limit: "4400kb" });
+app.use((req, res, next) => (req.path === BILL_UPLOAD_PATH ? billJson : smallJson)(req, res, next));
 app.use(express.static(publicDir, { extensions: ["html"] }));
 
 const roundMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -1015,6 +1021,52 @@ app.get("/api/stock-adjustments", async (req, res) => {
 });
 
 const MAX_PURCHASE_LINES = 50;
+
+// Reads an uploaded supplier bill (PDF/photo) and PROPOSES inward lines. It never
+// changes stock — the admin reviews the proposal in the "Import a bill" preview
+// and posts it through /api/inventory/purchase like any other bill.
+app.post(BILL_UPLOAD_PATH, async (req, res) => {
+  if (!isAdmin(req)) return fail(res, 403, "Only Admin can record purchases.");
+  const mediaType = String(req.body?.mediaType || "");
+  const base64 = String(req.body?.data || "");
+  if (!BILL_MEDIA_TYPES.includes(mediaType)) return fail(res, 400, "Upload the bill as a PDF, JPG, PNG or WebP.");
+  if (!base64) return fail(res, 400, "Attach the bill as a PDF or photo.");
+  try {
+    const products = await database.all("SELECT id, name FROM products ORDER BY name", []);
+    const idByName = new Map(products.map((p) => [p.name.trim().toLowerCase(), p.id]));
+    const reading = await readBill({ base64, mediaType }, products.map((p) => p.name));
+
+    const supplierRef = [reading.supplierName, reading.invoiceNumber, reading.invoiceDate].filter(Boolean).join(" · ").slice(0, 120);
+
+    // Guard against inwarding the same bill twice.
+    let duplicateOf = null;
+    if (reading.invoiceNumber && reading.invoiceNumber.length >= 3) {
+      const pattern = `%${reading.invoiceNumber.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const earlier = await database.get(
+        "SELECT supplier_ref, created_at FROM purchases WHERE supplier_ref ILIKE ? ORDER BY id DESC LIMIT 1",
+        [pattern],
+      );
+      if (earlier) duplicateOf = `${earlier.supplier_ref} (inwarded ${new Date(earlier.created_at).toISOString().slice(0, 10)})`;
+    }
+
+    res.json({
+      supplierRef,
+      duplicateOf,
+      warnings: reading.warnings,
+      lines: reading.lines.map((l) => ({
+        billText: l.billText,
+        quantity: l.quantity,
+        note: l.note,
+        productName: l.productName,
+        productId: l.productName ? idByName.get(l.productName.trim().toLowerCase()) ?? null : null,
+      })),
+    });
+  } catch (error) {
+    if (error instanceof BillReadError) return fail(res, error.status, error.message);
+    console.error("Failed to read bill", error);
+    fail(res, 500, "Unable to read this bill.");
+  }
+});
 
 // Record an incoming supplier bill. Accepts either a single product (the
 // original shape, kept so existing callers keep working) or a `lines` array of

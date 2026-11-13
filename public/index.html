@@ -1152,6 +1152,14 @@
         <p class="modal-intro">Download the product template, fill in the bill reference, date, quantities and — only for products whose price changed — a new price, then upload the same file back here to post the whole bill at once.</p>
 
         <div class="csv-bulk-step">
+          <label class="button button-primary compact-button" for="bill-scan-input" id="bill-scan-label">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17V3m0 0 4 4m-4-4-4 4M4 17v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg><span id="bill-scan-text">Upload bill (PDF / photo)</span>
+          </label>
+          <input id="bill-scan-input" type="file" accept="application/pdf,image/*" hidden />
+          <p class="field-hint">Have the supplier's bill as a PDF or a photo? Upload it and the lines are read for you — you still check them below before anything is posted. Or use the CSV route:</p>
+        </div>
+
+        <div class="csv-bulk-step">
           <button class="button button-outline compact-button" type="button" id="csv-download-template">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Download CSV template
           </button>
