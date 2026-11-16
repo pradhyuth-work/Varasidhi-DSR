@@ -791,9 +791,13 @@ teamRouter.get("/salary", requireAccount, async (req, res) => {
         "SELECT statement FROM salary_statements WHERE profile_id = $1 AND month = $2",
         [req.acct.profile_id, month],
       )).rows[0];
-      // Deductions are never sent to a buyer login; only the net payable (already after them).
+      // A buyer login only gets the figures shown on their salary sheet: items, the four
+      // earnings rows and TDS. Deductions, totals, net payable and paid status stay private.
       let statement = null;
-      if (row && row.statement) { statement = { ...row.statement }; delete statement.deductions; }
+      if (row && row.statement) {
+        const st = row.statement;
+        statement = { lines: st.lines, sale: st.sale, gpi: st.gpi, other: st.other, empty: st.empty, tds: st.tds };
+      }
       return { months, month, statement };
     });
     res.json({ name: req.acct.display_name, ...out });

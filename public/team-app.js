@@ -175,17 +175,14 @@
     var rows = s.lines.map(function (l) {
       return '<tr><td>' + esc(l.item) + '</td><td>' + fmt(l.qty) + '</td><td>' + rupee(l.rate) + '</td><td>' + rupee(l.amount) + '</td></tr>';
     }).join('');
-    var extra = function (label, v) { return v ? '<div class="tp-line"><span>' + label + '</span><b>' + rupee(v) + '</b></div>' : ''; };
-    return '<section class="tp-card"><h2>Sales commission</h2>' +
+    var row = function (label, v) { return '<div class="tp-line"><span>' + label + '</span><b>' + rupee(v) + '</b></div>'; };
+    return '<section class="tp-card"><h2>Items</h2>' +
       (s.lines.length ? '<div class="ts-wrap"><table class="ts-tbl"><thead><tr><th>ITEM</th><th>PCS</th><th>RATE</th><th>AMOUNT</th></tr></thead><tbody>' + rows +
         '<tr class="tot"><td>TOTAL</td><td>' + fmt(s.lines.reduce(function (a, l) { return a + l.qty; }, 0)) + '</td><td>\u2014</td><td>' + rupee(s.sale) + '</td></tr></tbody></table></div>'
-        : '<p class="tp-empty">No sales commission this month.</p>') + '</section>' +
-      '<section class="tp-card"><h2>Earnings</h2>' +
-      '<div class="tp-line"><span>Sales commission</span><b>' + rupee(s.sale) + '</b></div>' +
-      extra('GPI commission', s.gpi) + extra('Other incentives', s.other) + extra('Empty packet incentive', s.empty) +
-      '<div class="tp-line"><span>Total earned</span><b>' + rupee(s.earned) + '</b></div>' +
-      '<div class="tp-line"><span>Less TDS @ 1%</span><b>' + rupee(s.tds) + '</b></div>' +
-      '<div class="ts-bal"><div class="hi"><span>Net payable</span><b>' + rupee(s.net) + '</b></div><div><span>Status</span><b>' + (s.paid ? 'Paid' : 'Not paid yet') + '</b></div></div></section>';
+        : '<p class="tp-empty">No sales this month.</p>') + '</section>' +
+      '<section class="tp-card">' +
+      row('Sale comi earned', s.sale) + row('GPI comi earned', s.gpi) + row('Oth incentives', s.other) +
+      row('Empty pak inc', s.empty) + row('Less TDS @ 1%', s.tds) + '</section>';
   }
 
   function loadSalary(month) {
