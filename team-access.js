@@ -791,7 +791,10 @@ teamRouter.get("/salary", requireAccount, async (req, res) => {
         "SELECT statement FROM salary_statements WHERE profile_id = $1 AND month = $2",
         [req.acct.profile_id, month],
       )).rows[0];
-      return { months, month, statement: row ? row.statement : null };
+      // Deductions are never sent to a buyer login; only the net payable (already after them).
+      let statement = null;
+      if (row && row.statement) { statement = { ...row.statement }; delete statement.deductions; }
+      return { months, month, statement };
     });
     res.json({ name: req.acct.display_name, ...out });
   } catch (error) {

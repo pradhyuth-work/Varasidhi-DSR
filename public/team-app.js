@@ -185,7 +185,6 @@
       extra('GPI commission', s.gpi) + extra('Other incentives', s.other) + extra('Empty packet incentive', s.empty) +
       '<div class="tp-line"><span>Total earned</span><b>' + rupee(s.earned) + '</b></div>' +
       '<div class="tp-line"><span>Less TDS @ 1%</span><b>' + rupee(s.tds) + '</b></div>' +
-      extra('Deductions', s.deductions) +
       '<div class="ts-bal"><div class="hi"><span>Net payable</span><b>' + rupee(s.net) + '</b></div><div><span>Status</span><b>' + (s.paid ? 'Paid' : 'Not paid yet') + '</b></div></div></section>';
   }
 
