@@ -6,7 +6,7 @@
   var openBuyers = {};
   var latest = null;   // current month as reported by the server
   var current = null;  // month being shown
-  var kind = null, view = 'perf', settleOpen = {};
+  var kind = null, view = 'perf', settleOpen = {}, salaryMonth = null;
   var rupee = function (n) { return '\u20b9' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 
   function api(path, opts) {
@@ -109,7 +109,7 @@
     btn.disabled = true; lb.textContent = 'Signing in…';
     $('login-error').hidden = true;
     api('/api/team/login', { method: 'POST', body: { username: $('login-username').value.trim(), pin: $('login-password').value } })
-      .then(function () { latest = null; openBuyers = {}; settleOpen = {}; settleData = null; view = 'perf'; $('tp-view-perf').hidden = false; $('tp-view-settle').hidden = true; return load(); })
+      .then(function () { latest = null; openBuyers = {}; settleOpen = {}; settleData = null; salaryMonth = null; view = 'perf'; $('tp-view-perf').hidden = false; $('tp-view-settle').hidden = true; $('tp-view-salary').hidden = true; return load(); })
       .catch(function (e) { showLogin(e.message); })
       .then(function () { btn.disabled = false; lb.textContent = 'Sign in'; });
   });
@@ -171,19 +171,54 @@
     });
   }
 
+  function salaryHtml(s) {
+    var rows = s.lines.map(function (l) {
+      return '<tr><td>' + esc(l.item) + '</td><td>' + fmt(l.qty) + '</td><td>' + rupee(l.rate) + '</td><td>' + rupee(l.amount) + '</td></tr>';
+    }).join('');
+    var extra = function (label, v) { return v ? '<div class="tp-line"><span>' + label + '</span><b>' + rupee(v) + '</b></div>' : ''; };
+    return '<section class="tp-card"><h2>Sales commission</h2>' +
+      (s.lines.length ? '<div class="ts-wrap"><table class="ts-tbl"><thead><tr><th>ITEM</th><th>PCS</th><th>RATE</th><th>AMOUNT</th></tr></thead><tbody>' + rows +
+        '<tr class="tot"><td>TOTAL</td><td>' + fmt(s.lines.reduce(function (a, l) { return a + l.qty; }, 0)) + '</td><td>\u2014</td><td>' + rupee(s.sale) + '</td></tr></tbody></table></div>'
+        : '<p class="tp-empty">No sales commission this month.</p>') + '</section>' +
+      '<section class="tp-card"><h2>Earnings</h2>' +
+      '<div class="tp-line"><span>Sales commission</span><b>' + rupee(s.sale) + '</b></div>' +
+      extra('GPI commission', s.gpi) + extra('Other incentives', s.other) + extra('Empty packet incentive', s.empty) +
+      '<div class="tp-line"><span>Total earned</span><b>' + rupee(s.earned) + '</b></div>' +
+      '<div class="tp-line"><span>Less TDS @ 1%</span><b>' + rupee(s.tds) + '</b></div>' +
+      extra('Deductions', s.deductions) +
+      '<div class="ts-bal"><div class="hi"><span>Net payable</span><b>' + rupee(s.net) + '</b></div><div><span>Status</span><b>' + (s.paid ? 'Paid' : 'Not paid yet') + '</b></div></div></section>';
+  }
+
+  function loadSalary(month) {
+    return api('/api/team/salary' + (month ? '?month=' + encodeURIComponent(month) : '')).then(function (d) {
+      var sel = $('tsal-month'), out = $('tsal-out');
+      salaryMonth = d.month;
+      sel.innerHTML = d.months.map(function (m) { return '<option value="' + m + '"' + (m === d.month ? ' selected' : '') + '>' + esc(monthLabel(m)) + '</option>'; }).join('');
+      sel.disabled = !d.months.length;
+      out.innerHTML = d.statement ? salaryHtml(d.statement) : '<p class="tp-empty">No salary details have been added for you yet.</p>';
+      $('tp-msg').textContent = '';
+    }).catch(function (e) {
+      if (e.status === 401) { showLogin('Your session ended. Sign in again.'); return; }
+      $('tp-msg').textContent = e.message;
+    });
+  }
+
   function setView(v) {
-    view = v === 'settle' && kind === 'buyer' ? 'settle' : 'perf';
+    view = (v === 'settle' || v === 'salary') && kind === 'buyer' ? v : 'perf';
     $('tp-view-perf').hidden = view !== 'perf';
     $('tp-view-settle').hidden = view !== 'settle';
+    $('tp-view-salary').hidden = view !== 'salary';
     Array.prototype.forEach.call($('tp-switch').querySelectorAll('button'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-view') === view);
     });
     $('tp-msg').textContent = '';
     if (view === 'settle') loadSettle();
+    if (view === 'salary') loadSalary(salaryMonth);
   }
   Array.prototype.forEach.call($('tp-switch').querySelectorAll('button'), function (b) {
     b.addEventListener('click', function () { setView(b.getAttribute('data-view')); });
   });
+  $('tsal-month').addEventListener('change', function () { loadSalary(this.value); });
   $('ts-from').addEventListener('change', loadSettle);
   $('ts-to').addEventListener('change', loadSettle);
   $('tp-month').addEventListener('change', function () { load(this.value); });

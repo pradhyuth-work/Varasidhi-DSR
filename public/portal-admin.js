@@ -3,6 +3,7 @@
 // buyers, balances or any DSR data.
 (function () {
   var data = null, loading = false, failed = false, msg = '';
+  var salMonths = [], salMsg = '';
   var modal = null;
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var $ = function (id) { return document.getElementById(id); };
@@ -35,6 +36,7 @@
     if (loading) return Promise.resolve();
     loading = true;
     return api('/api/portal-accounts').then(function (d) { data = d; failed = false; })
+      .then(function () { return api('/api/portal-accounts/salary').then(function (d) { salMonths = d.months || []; }).catch(function () { salMonths = []; }); })
       .catch(function () { failed = true; })
       .then(function () { loading = false; renderCells(); renderPanel(); });
   }
@@ -86,7 +88,164 @@
       '<div class="admin-section-heading"><div><div class="section-kicker"><span class="section-number">02</span><span>TEAMS</span></div><h2>Team leads and their buyers</h2></div></div>' +
       '<div class="table-shell"><table class="route-table admin-table"><thead><tr><th>TEAM LEAD</th><th>USERNAME</th><th>BUYERS</th><th>STATUS</th><th></th></tr></thead><tbody>' +
       (data ? (rows || '<tr><td colspan="5">No team leads yet.</td></tr>') : '<tr><td colspan="5">' + (failed ? 'Team access is not available right now.' : 'Loading…') + '</td></tr>') +
-      '</tbody></table></div>';
+      '</tbody></table></div>' + salaryCard();
+  }
+
+  // ---- Salary statements --------------------------------------------------
+  var XLSX_SRC = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+  var parsed = null;
+  function monthLabel(m) {
+    var p = String(m).split('-');
+    return new Date(Number(p[0]), Number(p[1]) - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  }
+  function salaryCard() {
+    var list = salMonths.map(function (m) {
+      return '<tr><td>' + esc(monthLabel(m.month)) + '</td><td>' + m.people + '</td><td>₹' + Number(m.total_net || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 }) + '</td>' +
+        '<td><button class="button button-quiet compact-button" type="button" data-pa="sal-del" data-month="' + esc(m.month) + '">Remove month</button></td></tr>';
+    }).join('');
+    return '<div class="admin-section-heading"><div><div class="section-kicker"><span class="section-number">03</span><span>SALARY</span></div><h2>Salary statements</h2></div></div>' +
+      '<div class="admin-card"><p class="card-copy">Upload the monthly salary workbook (the file with a Master sheet and one sheet per person). Each buyer who has a login then sees only their own salary statement on the team page. Nobody else can see it.</p>' +
+      '<input id="pa-sal-file" type="file" accept=".xlsx,.xlsm" hidden />' +
+      '<button class="button button-primary" type="button" data-pa="sal-pick"' + (data ? '' : ' disabled') + '>Upload salary file</button>' +
+      '<p class="pa-msg" role="status">' + esc(salMsg) + '</p></div>' +
+      (salMonths.length ? '<div class="table-shell"><table class="route-table admin-table"><thead><tr><th>MONTH</th><th>PEOPLE</th><th>TOTAL NET PAYABLE</th><th></th></tr></thead><tbody>' + list + '</tbody></table></div>' : '');
+  }
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      if (window.XLSX) return resolve();
+      var sc = document.createElement('script');
+      sc.src = src; sc.onload = resolve;
+      sc.onerror = function () { reject(new Error('Could not load the spreadsheet reader. Check the internet connection and try again.')); };
+      document.head.appendChild(sc);
+    });
+  }
+  // Tiny arithmetic reader for cells like =8026+2000 that have no saved result.
+  function arith(str) {
+    var t = String(str).replace(/\s+/g, ''), i = 0;
+    if (!/^[0-9+\-*\/().]+$/.test(t)) return null;
+    function expr() { var v = term(); while (t[i] === '+' || t[i] === '-') { var o = t[i++]; var r = term(); v = o === '+' ? v + r : v - r; } return v; }
+    function term() { var v = fac(); while (t[i] === '*' || t[i] === '/') { var o = t[i++]; var r = fac(); v = o === '*' ? v * r : v / r; } return v; }
+    function fac() {
+      if (t[i] === '-') { i++; return -fac(); }
+      if (t[i] === '(') { i++; var v = expr(); if (t[i] !== ')') throw new Error('x'); i++; return v; }
+      var m = /^[0-9]*\.?[0-9]+/.exec(t.slice(i)); if (!m) throw new Error('x'); i += m[0].length; return Number(m[0]);
+    }
+    try { var out = expr(); return i === t.length && isFinite(out) ? out : null; } catch (e) { return null; }
+  }
+  function cellNum(ws, addr) {
+    var c = ws[addr];
+    if (!c) return 0;
+    if (typeof c.v === 'number') return c.v;
+    if (c.f) { var v = arith(c.f); if (v !== null) return v; }
+    var n = Number(c.v); return isFinite(n) ? n : 0;
+  }
+  function cellText(ws, addr) { var c = ws[addr]; return c && c.v != null ? String(c.v).trim() : ''; }
+  function norm(x) { return String(x || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  function colName(i) { return String.fromCharCode(65 + i); }
+  function compute(r) {
+    var sale = 0; r.lines.forEach(function (l) { sale += Math.round(l.qty * l.rate * 100) / 100; });
+    var earned = sale + r.gpi + r.other + r.empty, tds = Math.round(earned) / 100;
+    return { sale: sale, earned: earned, tds: tds, net: Math.round((earned - tds - r.deductions) * 100) / 100 };
+  }
+  function parseSalary(buf, fileName) {
+    var wb = window.XLSX.read(buf, { type: 'array', cellFormula: true, cellDates: true });
+    var master = wb.Sheets['Master'];
+    if (!master) throw new Error('This does not look like the salary file: there is no Master sheet.');
+    var sheetBy = {};
+    wb.SheetNames.forEach(function (n) { sheetBy[norm(n)] = wb.Sheets[n]; });
+    var people = [];
+    for (var c = 2; c <= 21; c++) {
+      var L = colName(c), name = cellText(master, L + '3'), code = cellText(master, L + '2');
+      if (!name) continue;
+      var sheet = sheetBy[norm(name)];
+      if (!sheet) continue;
+      var lines = [];
+      for (var r = 4; r <= 43; r++) {
+        var item = cellText(master, 'B' + r);
+        if (!item || item.charAt(0) === '—') continue;
+        var qty = cellNum(master, L + r), rate = cellNum(sheet, 'C' + r);
+        if (qty > 0) lines.push({ item: item, qty: qty, rate: rate });
+      }
+      people.push({
+        name: name, code: code, lines: lines,
+        gpi: cellNum(master, L + '47'), other: cellNum(master, L + '48'), empty: cellNum(master, L + '49'), deductions: cellNum(master, L + '50'),
+        paid: cellText(master, L + '51').toUpperCase() === 'YES'
+      });
+    }
+    if (!people.length) throw new Error('No salesman columns were found in the Master sheet.');
+    var month = '';
+    var mm = /(\d{2})(\d{2})(?!.*\d)/.exec(String(fileName || '').replace(/\.[a-z]+$/i, ''));
+    if (mm && Number(mm[1]) >= 1 && Number(mm[1]) <= 12) month = '20' + mm[2] + '-' + mm[1];
+    if (!month) {
+      var b1 = master.B1 && master.B1.v;
+      if (b1 instanceof Date && !isNaN(b1)) month = b1.getFullYear() + '-' + ('0' + (b1.getMonth() + 1)).slice(-2);
+    }
+    return { month: month, people: people };
+  }
+  // Best guess at which buyer profile a salary column belongs to. The admin can change every guess.
+  function guessProfile(person) {
+    var buyers = (data && data.buyers) || [];
+    var first = norm(person.name.split(/\s+/)[0]);
+    var codeNum = String(Number(person.code));
+    var byCode = buyers.filter(function (b) {
+      var m = /[·•]\s*0*(\d+)\s*$/.exec(b.name);
+      return m && m[1] === codeNum;
+    });
+    if (byCode.length === 1) return byCode[0].profile_id;
+    var pool = byCode.length ? byCode : buyers;
+    var byName = pool.filter(function (b) { return first.length >= 3 && norm(b.name).indexOf(first) === 0; });
+    return byName.length === 1 ? byName[0].profile_id : null;
+  }
+  function previewModal() {
+    var opts = function (sel) {
+      return '<option value="">— not uploaded —</option>' + data.buyers.map(function (b) {
+        return '<option value="' + b.profile_id + '"' + (b.profile_id === sel ? ' selected' : '') + '>' + esc(b.name) + '</option>';
+      }).join('');
+    };
+    var rows = parsed.people.map(function (p, i) {
+      var t = compute(p);
+      return '<tr><td>' + esc(p.name) + ' <span class="stock-quiet">' + esc(p.code) + '</span></td><td>₹' + t.net.toLocaleString('en-IN', { maximumFractionDigits: 2 }) + '</td>' +
+        '<td><select name="who" data-i="' + i + '">' + opts(p.profile_id) + '</select></td></tr>';
+    }).join('');
+    openModal(
+      '<div class="section-kicker"><span class="section-number">◎</span><span>SALARY FILE</span></div><h2>Check and save</h2>' +
+      '<p class="modal-intro">Choose which buyer each salary belongs to. Only the buyers you match will get a statement, and each sees only their own. Totals are worked out again when saved.</p>' +
+      '<form id="pa-form" autocomplete="off">' +
+      '<label class="form-field"><span>Salary month</span><input name="month" type="month" required value="' + esc(parsed.month) + '" /></label>' +
+      '<div class="table-shell"><table class="route-table admin-table"><thead><tr><th>SALARY SHEET</th><th>NET PAYABLE</th><th>BUYER</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="admin-auth-error" id="pa-error" hidden></p>' +
+      '<div class="modal-actions"><button class="button button-quiet" type="button" data-pa="close">Cancel</button><button class="button button-primary" type="submit" id="pa-save">Save</button></div></form>',
+      function (f) {
+        var chosen = [], seen = {}, bad = null;
+        Array.prototype.forEach.call(f.querySelectorAll('select[name="who"]'), function (sel) {
+          if (!sel.value) return;
+          var p = parsed.people[Number(sel.getAttribute('data-i'))];
+          if (seen[sel.value]) bad = 'The same buyer is chosen twice. Fix it and try again.';
+          seen[sel.value] = true;
+          chosen.push({ profile_id: Number(sel.value), code: p.code, name: p.name, lines: p.lines, gpi: p.gpi, other: p.other, empty: p.empty, deductions: p.deductions, paid: p.paid });
+        });
+        if (bad) return fail(bad);
+        if (!f.month.value) return fail('Choose the salary month.');
+        if (!chosen.length) return fail('Match at least one salary to a buyer.');
+        busy(true);
+        api('/api/portal-accounts/salary', { method: 'POST', body: { month: f.month.value, rows: chosen } })
+          .then(function (r) { salMsg = 'Saved ' + r.saved + ' salary statements for ' + monthLabel(r.month) + '.'; parsed = null; return done(''); })
+          .catch(function (e) { busy(false); fail(e.message); });
+      }
+    );
+  }
+  function onSalaryFile(input) {
+    var file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    salMsg = 'Reading the file…'; renderPanel();
+    loadScript(XLSX_SRC).then(function () { return file.arrayBuffer(); }).then(function (buf) {
+      parsed = parseSalary(buf, file.name);
+      parsed.people.forEach(function (p) { p.profile_id = guessProfile(p); });
+      salMsg = '';
+      renderPanel();
+      previewModal();
+    }).catch(function (e) { parsed = null; salMsg = e.message || 'Could not read that file.'; renderPanel(); });
   }
 
   // ---- Popup --------------------------------------------------------------
@@ -194,6 +353,13 @@
     if (act === 'close') return closeModal();
     if (!data) return;
     if (act === 'buyer-edit') return buyerModal(Number(btn.getAttribute('data-pid')));
+    if (act === 'sal-pick') { var fi = $('pa-sal-file'); if (fi) fi.click(); return; }
+    if (act === 'sal-del') {
+      if (btn.getAttribute('data-sure') !== '1') { btn.setAttribute('data-sure', '1'); btn.textContent = 'Tap again to remove'; return; }
+      api('/api/portal-accounts/salary/' + encodeURIComponent(btn.getAttribute('data-month')), { method: 'DELETE' })
+        .then(function () { salMsg = 'Month removed.'; return load(); }).catch(function (e) { salMsg = e.message; renderPanel(); });
+      return;
+    }
     if (act === 'tl-new') return teamModal(null);
     if (act === 'tl-edit') return teamModal(Number(btn.getAttribute('data-aid')));
     if (act === 'toggle') {
@@ -202,6 +368,7 @@
         .then(function () { msg = ''; return load(); }).catch(function () { btn.disabled = false; });
     }
   });
+  document.addEventListener('change', function (e) { if (e.target && e.target.id === 'pa-sal-file') onSalaryFile(e.target); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && modal && !modal.hidden) closeModal(); });
 
   // The buyer table is rebuilt by the main app whenever it refreshes; refill our column each time.

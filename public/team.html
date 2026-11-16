@@ -72,6 +72,7 @@
       <nav class="tp-switch" id="tp-switch" aria-label="View" hidden>
         <button type="button" class="on" data-view="perf">Performance</button>
         <button type="button" data-view="settle">Settlement Report</button>
+        <button type="button" data-view="salary">Salary</button>
       </nav>
       <div id="tp-view-perf">
       <div class="tp-controls">
@@ -97,6 +98,13 @@
           <label for="ts-to">To</label><input type="date" id="ts-to" />
         </div>
         <div id="ts-list"></div>
+      </div>
+      <div id="tp-view-salary" hidden>
+        <div class="tp-controls">
+          <label for="tsal-month">Month</label>
+          <select id="tsal-month"></select>
+        </div>
+        <div id="tsal-out"></div>
       </div>
       <p id="tp-msg" class="tp-msg" role="status"></p>
       <p class="tp-foot">Counts completed route days only. View only.</p>
