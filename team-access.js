@@ -445,6 +445,40 @@ teamRouter.get("/settlement", requireAccount, async (req, res) => {
 
 // Anything else under /api/team: answer here so it never falls through to the staff routes.
 teamRouter.all(["/me", "/performance", "/settlement", "/login", "/logout"], (_req, res) => fail(res, 405, "Not allowed."));
+// Buyer: own statement only.
+teamRouter.get("/salary", requireAccount, async (req, res) => {
+  try {
+    if (req.acct.kind !== "buyer" || !req.acct.profile_id) {
+      return fail(res, 403, "Salary details are not available for this login.");
+    }
+    const wanted = MONTH_RE.test(String(req.query?.month || "")) ? String(req.query.month) : null;
+    const out = await readOnly(async (c) => {
+      const months = (await c.query(
+        "SELECT month FROM salary_statements WHERE profile_id = $1 ORDER BY month DESC LIMIT 24",
+        [req.acct.profile_id],
+      )).rows.map((r) => r.month);
+      const month = wanted && months.includes(wanted) ? wanted : months[0] || null;
+      if (!month) return { months, month: null, statement: null };
+      const row = (await c.query(
+        "SELECT statement FROM salary_statements WHERE profile_id = $1 AND month = $2",
+        [req.acct.profile_id, month],
+      )).rows[0];
+      // A buyer login only gets the figures shown on their salary sheet: items, the four
+      // earnings rows and TDS. Deductions, totals, net payable and paid status stay private.
+      let statement = null;
+      if (row && row.statement) {
+        const st = row.statement;
+        statement = { lines: st.lines, sale: st.sale, gpi: st.gpi, other: st.other, empty: st.empty, tds: st.tds };
+      }
+      return { months, month, statement };
+    });
+    res.json({ name: req.acct.display_name, ...out });
+  } catch (error) {
+    console.error("Team salary failed", error.message);
+    fail(res, 500, "Unable to load salary details right now.");
+  }
+});
+
 teamRouter.use((_req, res) => fail(res, 404, "Not found."));
 
 // ===========================================================================
@@ -770,39 +804,5 @@ portalAdminRouter.delete("/salary/:month", async (req, res) => {
   } catch (error) {
     console.error("Failed to remove salary month", error.message);
     fail(res, 500, "Unable to remove that month.");
-  }
-});
-
-// Buyer: own statement only.
-teamRouter.get("/salary", requireAccount, async (req, res) => {
-  try {
-    if (req.acct.kind !== "buyer" || !req.acct.profile_id) {
-      return fail(res, 403, "Salary details are not available for this login.");
-    }
-    const wanted = MONTH_RE.test(String(req.query?.month || "")) ? String(req.query.month) : null;
-    const out = await readOnly(async (c) => {
-      const months = (await c.query(
-        "SELECT month FROM salary_statements WHERE profile_id = $1 ORDER BY month DESC LIMIT 24",
-        [req.acct.profile_id],
-      )).rows.map((r) => r.month);
-      const month = wanted && months.includes(wanted) ? wanted : months[0] || null;
-      if (!month) return { months, month: null, statement: null };
-      const row = (await c.query(
-        "SELECT statement FROM salary_statements WHERE profile_id = $1 AND month = $2",
-        [req.acct.profile_id, month],
-      )).rows[0];
-      // A buyer login only gets the figures shown on their salary sheet: items, the four
-      // earnings rows and TDS. Deductions, totals, net payable and paid status stay private.
-      let statement = null;
-      if (row && row.statement) {
-        const st = row.statement;
-        statement = { lines: st.lines, sale: st.sale, gpi: st.gpi, other: st.other, empty: st.empty, tds: st.tds };
-      }
-      return { months, month, statement };
-    });
-    res.json({ name: req.acct.display_name, ...out });
-  } catch (error) {
-    console.error("Team salary failed", error.message);
-    fail(res, 500, "Unable to load salary details right now.");
   }
 });
