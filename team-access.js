@@ -464,11 +464,14 @@ teamRouter.get("/salary", requireAccount, async (req, res) => {
         [req.acct.profile_id, month],
       )).rows[0];
       // A buyer login only gets the figures shown on their salary sheet: items, the four
-      // earnings rows and TDS. Deductions, totals, net payable and paid status stay private.
+      // earnings rows, TDS and the total before deductions. Deductions, net payable and paid status stay private.
       let statement = null;
       if (row && row.statement) {
         const st = row.statement;
-        statement = { lines: st.lines, sale: st.sale, gpi: st.gpi, other: st.other, empty: st.empty, tds: st.tds };
+        statement = {
+          lines: st.lines, sale: st.sale, gpi: st.gpi, other: st.other, empty: st.empty, tds: st.tds,
+          before_deductions: r2(Number(st.earned || 0) - Number(st.tds || 0)),
+        };
       }
       return { months, month, statement };
     });

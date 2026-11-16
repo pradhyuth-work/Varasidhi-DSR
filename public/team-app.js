@@ -182,7 +182,8 @@
         : '<p class="tp-empty">No sales this month.</p>') + '</section>' +
       '<section class="tp-card">' +
       row('Sale comi earned', s.sale) + row('GPI comi earned', s.gpi) + row('Oth incentives', s.other) +
-      row('Empty pak inc', s.empty) + row('Less TDS @ 1%', s.tds) + '</section>';
+      row('Empty pak inc', s.empty) + row('Less TDS @ 1%', s.tds) +
+      '<div class="ts-bal"><div class="hi"><span>Total before deductions</span><b>' + rupee(s.before_deductions) + '</b></div></div></section>';
   }
 
   function loadSalary(month) {
