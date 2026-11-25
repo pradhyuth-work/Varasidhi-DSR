@@ -333,7 +333,7 @@ teamRouter.get("/performance", requireAccount, async (req, res) => {
           WHERE s.status = 'SETTLED' AND s.date >= $1 AND s.date < $2
             AND s.buyer_id = ANY($3::int[]) AND i.qty_sold > 0
           GROUP BY s.buyer_id, p.id, p.name
-          ORDER BY s.buyer_id, units DESC, p.id`,
+          ORDER BY s.buyer_id, p.id`,
         [from, to, ids],
       )).rows;
       return { buyers, rows };
@@ -346,9 +346,9 @@ teamRouter.get("/performance", requireAccount, async (req, res) => {
       const b = byBuyer.get(r.buyer_id);
       if (!b) continue;
       b.units += r.units;
-      b.products.push({ name: r.product_name, units: r.units });
+      b.products.push({ id: r.product_id, name: r.product_name, units: r.units });
       total += r.units;
-      const t = team.get(r.product_id) || { name: r.product_name, units: 0 };
+      const t = team.get(r.product_id) || { id: r.product_id, name: r.product_name, units: 0 };
       t.units += r.units;
       team.set(r.product_id, t);
     }
@@ -357,7 +357,7 @@ teamRouter.get("/performance", requireAccount, async (req, res) => {
       kind: req.acct.kind,
       name: req.acct.display_name,
       total_units: total,
-      products: [...team.values()].sort((a, b) => b.units - a.units),
+      products: [...team.values()].sort((a, b) => a.id - b.id),
       buyers: [...byBuyer.values()],
     });
   } catch (error) {
