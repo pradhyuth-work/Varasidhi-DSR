@@ -482,6 +482,21 @@ teamRouter.get("/salary", requireAccount, async (req, res) => {
   }
 });
 
+// Product list for every team login: ID, name and rate, in product-ID order. Read only; warehouse stock stays private.
+teamRouter.get("/products", requireAccount, async (_req, res) => {
+  try {
+    const products = await readOnly(async (c) =>
+      (await c.query("SELECT id, name, unit_price FROM products ORDER BY id ASC")).rows.map((r) => ({
+        id: Number(r.id), name: r.name, unit_price: Number(r.unit_price),
+      })),
+    );
+    res.json({ products });
+  } catch (error) {
+    console.error("Team products failed", error.message);
+    fail(res, 500, "Unable to load the product list right now.");
+  }
+});
+
 teamRouter.use((_req, res) => fail(res, 404, "Not found."));
 
 // ===========================================================================

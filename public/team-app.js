@@ -64,7 +64,8 @@
   function render(d) {
     current = d.month;
     kind = d.kind;
-    $('tp-switch').hidden = d.kind !== 'buyer';
+    $('tp-switch').hidden = false;
+    Array.prototype.forEach.call($('tp-switch').querySelectorAll('[data-buyer]'), function (b) { b.hidden = d.kind !== 'buyer'; });
     if (!latest) { latest = d.month; fillMonths(latest, d.month); }
     $('tp-month').value = d.month;
     $('tp-name').textContent = d.name || '';
@@ -109,7 +110,7 @@
     btn.disabled = true; lb.textContent = 'Signing in…';
     $('login-error').hidden = true;
     api('/api/team/login', { method: 'POST', body: { username: $('login-username').value.trim(), pin: $('login-password').value } })
-      .then(function () { latest = null; openBuyers = {}; settleOpen = {}; settleData = null; salaryMonth = null; view = 'perf'; $('tp-view-perf').hidden = false; $('tp-view-settle').hidden = true; $('tp-view-salary').hidden = true; return load(); })
+      .then(function () { latest = null; openBuyers = {}; settleOpen = {}; settleData = null; salaryMonth = null; view = 'perf'; $('tp-view-perf').hidden = false; $('tp-view-settle').hidden = true; $('tp-view-salary').hidden = true; $('tp-view-products').hidden = true; return load(); })
       .catch(function (e) { showLogin(e.message); })
       .then(function () { btn.disabled = false; lb.textContent = 'Sign in'; });
   });
@@ -200,8 +201,21 @@
     });
   }
 
+  function loadProducts() {
+    return api('/api/team/products').then(function (d) {
+      $('tpl-out').innerHTML = d.products.length ? '<div class="ts-wrap"><table class="ts-tbl"><thead><tr><th>ID</th><th>PRODUCT</th><th>RATE</th></tr></thead><tbody>' +
+        d.products.map(function (p) { return '<tr><td>' + p.id + '</td><td>' + esc(p.name) + '</td><td>' + rupee(p.unit_price) + '</td></tr>'; }).join('') +
+        '</tbody></table></div>' : '<p class="tp-empty">No products yet.</p>';
+      $('tp-msg').textContent = '';
+    }).catch(function (e) {
+      if (e.status === 401) { showLogin('Your session ended. Sign in again.'); return; }
+      $('tp-msg').textContent = e.message;
+    });
+  }
+
   function setView(v) {
-    view = (v === 'settle' || v === 'salary') && kind === 'buyer' ? v : 'perf';
+    view = v === 'products' ? v : ((v === 'settle' || v === 'salary') && kind === 'buyer' ? v : 'perf');
+    $('tp-view-products').hidden = view !== 'products';
     $('tp-view-perf').hidden = view !== 'perf';
     $('tp-view-settle').hidden = view !== 'settle';
     $('tp-view-salary').hidden = view !== 'salary';
@@ -211,6 +225,7 @@
     $('tp-msg').textContent = '';
     if (view === 'settle') loadSettle();
     if (view === 'salary') loadSalary(salaryMonth);
+    if (view === 'products') loadProducts();
   }
   Array.prototype.forEach.call($('tp-switch').querySelectorAll('button'), function (b) {
     b.addEventListener('click', function () { setView(b.getAttribute('data-view')); });
